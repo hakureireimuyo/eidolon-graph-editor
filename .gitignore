@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+
+# 用户数据(与源码严格分离,不随仓库提交)
+workspace/
+
+# Misc
+.DS_Store
+*.log
+
+# 本机双击启动器(PowerShell 下 bash 会被解析为 WSL bash,仅本机环境需要)
+start-editor.bat
+start.sh
