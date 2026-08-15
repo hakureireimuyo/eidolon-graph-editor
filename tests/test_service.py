@@ -1,11 +1,28 @@
-"""图编辑服务测试:校验 / 编辑操作编解码与草稿应用 / headless 预览确定性 / 工作区原子写。
+"""图编辑服务测试:校验 / 编辑操作编解码与草稿应用 / 运行会话 / 工作区原子写。
 
 只测服务层纯逻辑(不测 HTTP 与前端):前端改动由用户手动验证。
+
+内核语义(阶段零,事件驱动):
+- 运行 = 实时自驱会话:事件源 = 节点自身(Clock 按 rate 每秒一次),宿主不伪造
+  事件、不推进节奏;反馈环跨发射迭代;停止即静止;
+- 连线带 dst_slot(data|signal):信号源 = 控制输出或数据输出的信号端口;
+- 节点声明顺序影响同一次单遍内的级联传播(旧内核"顺序无关"性质不成立)。
 """
 
-from eidolon_graph.model import serialize
+import time
+
+from eidolon_graph.model import ValidationError, serialize
 
 from backend import service, workspace
+
+
+def _wait_for(predicate, timeout=8.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.05)
+    return False
 
 LOOP = {
     "name": "loop",
@@ -21,7 +38,9 @@ LOOP = {
         {"src_node": "counter", "src_port": "count", "dst_node": "threshold", "dst_port": "value"},
         {"src_node": "threshold", "src_port": "over", "dst_node": "printer", "dst_port": "msg"},
         {"src_node": "printer", "src_port": "echo", "dst_node": "clock", "dst_port": "rate"},
-        {"src_node": "threshold", "src_port": "under", "dst_node": "clock", "dst_port": "enable"},
+        # 控制输出 → 控制输入:信号槽(内核要求 dst_slot='signal')
+        {"src_node": "threshold", "src_port": "under", "dst_node": "clock", "dst_port": "enable",
+         "dst_slot": "signal"},
     ],
 }
 
@@ -37,20 +56,60 @@ def test_validate_graph_dict():
     assert not report.ok and any("不是输入端口" in e for e in report.errors)
 
 
+def test_validate_signal_slot_rules():
+    """dst_slot 语义:控制输出必须走信号槽;信号槽连数据输入是唯一合法交叉。
+
+    注意:输入组端口必须连线或绑定(内核强校验),故测试图需把 judge/print
+    组的数据输入全部接上,再单独验证信号槽规则。
+    """
+    lib, _ = service.builtin_env()
+    cross = {"name": "c", "kernel_version": "0.1.0-0",
+             "nodes": [{"node_id": "clk", "type_name": "Clock", "config": {}},
+                       {"node_id": "t", "type_name": "Threshold", "config": {"limit": 1}},
+                       {"node_id": "p", "type_name": "Printer", "config": {}}],
+             "wires": [
+                 {"src_node": "clk", "src_port": "count", "dst_node": "t", "dst_port": "value"},
+                 {"src_node": "t", "src_port": "over", "dst_node": "p", "dst_port": "msg"},
+                 # 控制输出 → 数据输入,不带 dst_slot(缺省 data)
+                 {"src_node": "t", "src_port": "under", "dst_node": "p", "dst_port": "msg"},
+             ]}
+    report = service.validate_graph_dict(cross, lib)
+    assert not report.ok and any("只能连信号槽" in e for e in report.errors)
+    # 同一条线带 dst_slot='signal' → 合法(control-out → data-in 信号,显式屏蔽)
+    cross["wires"][2]["dst_slot"] = "signal"
+    assert service.validate_graph_dict(cross, lib).ok
+    # 数据输出带 dst_slot='signal' → 合法(信号端口显式路由)
+    route = {"name": "b", "kernel_version": "0.1.0-0",
+             "nodes": [{"node_id": "n", "type_name": "Clock", "config": {}},
+                       {"node_id": "x", "type_name": "Counter", "config": {}}],
+             "wires": [{"src_node": "n", "src_port": "count", "dst_node": "x", "dst_port": "increment"},
+                       {"src_node": "n", "src_port": "count", "dst_node": "x", "dst_port": "increment",
+                        "dst_slot": "signal"}]}
+    assert service.validate_graph_dict(route, lib).ok
+    # 数据输出数据槽连控制输入 → 交叉连线(数据线不能进控制端口)
+    bad = {"name": "c", "kernel_version": "0.1.0-0",
+           "nodes": [{"node_id": "n", "type_name": "Clock", "config": {}},
+                     {"node_id": "g", "type_name": "AND", "config": {}}],
+           "wires": [{"src_node": "n", "src_port": "count", "dst_node": "g", "dst_port": "a"}]}
+    report = service.validate_graph_dict(bad, lib)
+    assert not report.ok and any("交叉连线" in e for e in report.errors)
+
+
 def test_ops_apply_on_draft():
     lib, _ = service.builtin_env()
     graph = service.decode_graph(LOOP)
-    # 加节点 + 连线:合法
+    # 加节点 + 连线:合法(注意内核禁止扇入——端口不能接第二个来源)
     ops = [{"op": "add_node", "node": {"node_id": "rng1", "type_name": "Random", "config": {}}},
+           {"op": "add_node", "node": {"node_id": "counter2", "type_name": "Counter", "config": {}}},
            {"op": "add_edge", "wire": {"src_node": "rng1", "src_port": "draw",
-                                       "dst_node": "printer", "dst_port": "msg"}}]
+                                       "dst_node": "counter2", "dst_port": "increment"}}]
     draft, report = service.apply_ops(graph, ops, lib)
-    assert report.ok and "rng1" in draft.node_map()
-    # 交叉连线:应用成功但校验报错(草稿允许中间态,保存时才拦)
+    assert report.ok and "rng1" in draft.node_map() and "counter2" in draft.node_map()
+    # 交叉连线(数据输出 → 控制输入):应用成功但校验报错(草稿允许中间态,保存时才拦)
     draft2, report2 = service.apply_ops(draft, [{
         "op": "add_edge",
-        "wire": {"src_node": "threshold", "src_port": "under",
-                 "dst_node": "printer", "dst_port": "msg"}}], lib)
+        "wire": {"src_node": "clock", "src_port": "count",
+                 "dst_node": "clock", "dst_port": "enable"}}], lib)
     assert not report2.ok and any("交叉连线" in e for e in report2.errors)
     # 删连线 / 改配置 / 删节点
     draft3, report3 = service.apply_ops(draft, [
@@ -71,25 +130,168 @@ def test_ops_apply_on_draft():
         raise AssertionError("未知操作应抛 ValueError")
 
 
-def test_preview_deterministic_and_order_independent():
+def test_wire_codec_dst_slot_roundtrip():
+    """_wire_of 透传 dst_slot;缺省为 data。"""
+    lib, _ = service.builtin_env()
+    graph = service.decode_graph(LOOP)
+    # 无 dst_slot → 缺省 data;带 dst_slot='signal' → 保留
+    ops = [{"op": "add_edge", "wire": {"src_node": "clock", "src_port": "count",
+                                       "dst_node": "printer", "dst_port": "msg"}},
+           {"op": "add_edge", "wire": {"src_node": "threshold", "src_port": "under",
+                                       "dst_node": "printer", "dst_port": "msg",
+                                       "dst_slot": "signal"}}]
+    draft, _ = service.apply_ops(graph, ops, lib)
+    wires = {w.src_port: w.dst_slot for w in draft.wires}
+    assert wires["count"] == "data"
+    assert wires["under"] == "signal"
+    # 序列化往返不丢 dst_slot
+    back = service.decode_graph(serialize.graph_to_dict(draft))
+    assert {w.src_port: w.dst_slot for w in back.wires} == wires
+
+
+def test_session_realtime_runs_and_stops():
+    """运行会话:世界自驱(事件源 = 节点),启动即发第一次事件;停止即销毁。"""
     lib, registry = service.builtin_env()
-    r1 = service.run_preview(service.decode_graph(LOOP), lib, registry, ticks=4, seed=42, trace=True)
-    r2 = service.run_preview(service.decode_graph(LOOP), lib, registry, ticks=4, seed=42, trace=True)
-    assert r1["ok"] and r2["ok"]
-    assert r1["final"] == r2["final"]  # 同图同 seed:确定性可复现
-    assert [t["tick"] for t in r1["traces"]] == [1, 2, 3, 4]  # 快照拍于每轮完成后的轮界
-    # 节点声明顺序无关(内核验收性质在编辑器服务内同样成立)
-    shuffled = dict(LOOP, nodes=list(reversed(LOOP["nodes"])))
-    r3 = service.run_preview(service.decode_graph(shuffled), lib, registry, ticks=4, seed=42)
-    assert r3["final"] == r1["final"]
+    sid = service.start_session(service.decode_graph(LOOP), lib, registry, seed=0)
+    assert _wait_for(lambda: service.session_view(sid) is not None
+                     and service.session_view(sid)["run_no"] >= 1)
+    assert service.stop_session(sid)
+    assert service.session_view(sid) is None
+    assert not service.session_alive(sid)
+    assert not service.stop_session(sid)
 
 
-def test_preview_rejects_invalid_graph():
+def test_session_feedback_gating():
+    """反馈环跨发射迭代:threshold 门控 clock,计数封顶后不再增长。"""
+    lib, registry = service.builtin_env()
+    sid = service.start_session(service.decode_graph(LOOP), lib, registry, seed=0)
+    limit = LOOP["nodes"][2]["config"]["limit"]
+
+    def gated():
+        view = service.session_view(sid)
+        if view is None or view["run_no"] < 3:
+            return False
+        return view["snapshot"]["nodes"]["clock"]["control_in_levels"]["enable"] == "inactive"
+
+    assert _wait_for(gated)
+    view = service.session_view(sid)
+    counter_count = view["snapshot"]["nodes"]["counter"]["state"]["count"]
+    assert counter_count <= limit + 1  # 门控生效,而非一路增长
+    service.stop_session(sid)
+
+
+def test_output_node_console():
+    """内核 Output 日志输出节点:Clock 事件逐行累积,console 抽取带节点前缀。"""
+    lib, registry = service.builtin_env()
+    graph = {"name": "out", "kernel_version": "0.1.0-0",
+             "nodes": [{"node_id": "clock", "type_name": "Clock", "config": {}},
+                       {"node_id": "out", "type_name": "Output", "config": {}}],
+             "wires": [{"src_node": "clock", "src_port": "count",
+                        "dst_node": "out", "dst_port": "msg"}]}
+    assert service.validate_graph_dict(graph, lib).ok  # Output 已在宿主环境注册
+    sid = service.start_session(service.decode_graph(graph), lib, registry)
+    assert _wait_for(lambda: service.session_view(sid) is not None
+                     and len(service.session_view(sid)["console"]) >= 3)
+    view = service.session_view(sid)
+    assert view["console"][:3] == ["[out] 1", "[out] 2", "[out] 3"]
+    service.stop_session(sid)
+
+
+def test_start_session_rejects_invalid_graph():
     lib, registry = service.builtin_env()
     broken = {"name": "b", "nodes": [{"node_id": "n", "type_name": "NoSuch", "config": {}}],
               "wires": []}
-    r = service.run_preview(service.decode_graph(broken), lib, registry)
-    assert not r["ok"] and any("未声明" in e for e in r["report"]["errors"])
+    try:
+        service.start_session(service.decode_graph(broken), lib, registry)
+    except ValidationError as e:
+        assert any("未声明" in x for x in e.report.errors)
+    else:
+        raise AssertionError("无效图应抛 ValidationError")
+
+
+def test_random_function_node():
+    """内核 Random 随机函数节点:Clock.count → num 触发,确定性输出可复现。"""
+    from eidolon_graph.engine.rng import Rng, derive_seed
+    lib, registry = service.builtin_env()
+    graph = {"name": "rnd", "kernel_version": "0.1.0-0",
+             "nodes": [{"node_id": "clock", "type_name": "Clock", "config": {}},
+                       {"node_id": "r1", "type_name": "Random",
+                        "config": {"seed": 7, "range": 10}},
+                       {"node_id": "out", "type_name": "Output", "config": {}}],
+             "wires": [{"src_node": "clock", "src_port": "count", "dst_node": "r1", "dst_port": "num"},
+                       {"src_node": "r1", "src_port": "draw", "dst_node": "out", "dst_port": "msg"}]}
+    assert service.validate_graph_dict(graph, lib).ok  # Random 在内核节点库注册
+    sid = service.start_session(service.decode_graph(graph), lib, registry)
+    assert _wait_for(lambda: service.session_view(sid) is not None
+                     and len(service.session_view(sid)["console"]) >= 1)
+    # 首次数值 = f(seed=7, num=1, range=10):确定性可复现
+    expected = Rng(derive_seed(7, "1")).next_int(10)
+    assert service.session_view(sid)["console"][0] == f"[out] {expected}"
+    service.stop_session(sid)
+
+
+def test_random_only_seed_wired():
+    """只连 seed 也产生事件(输入组=函数):random(num=默认, seed=clock.output, range=默认)。"""
+    from eidolon_graph.engine.rng import Rng, derive_seed
+    lib, registry = service.builtin_env()
+    graph = {"name": "rnd", "kernel_version": "0.1.0-0",
+             "nodes": [{"node_id": "clock", "type_name": "Clock", "config": {}},
+                       {"node_id": "r1", "type_name": "Random",
+                        "config": {"num": 10, "range": 100}},
+                       {"node_id": "out", "type_name": "Output", "config": {}}],
+             "wires": [{"src_node": "clock", "src_port": "count", "dst_node": "r1", "dst_port": "seed"},
+                       {"src_node": "r1", "src_port": "draw", "dst_node": "out", "dst_port": "msg"}]}
+    assert service.validate_graph_dict(graph, lib).ok
+    sid = service.start_session(service.decode_graph(graph), lib, registry)
+    assert _wait_for(lambda: service.session_view(sid) is not None
+                     and len(service.session_view(sid)["console"]) >= 1)
+    expected = Rng(derive_seed(1, "10")).next_int(100)
+    assert service.session_view(sid)["console"][0] == f"[out] {expected}"
+    service.stop_session(sid)
+
+
+def test_input_node_inject_propagates():
+    """Input 宿主节点:注入事件 → 输出事件向后传播,与节点产出数据同构。"""
+    lib, registry = service.builtin_env()
+    graph = {"name": "in", "kernel_version": "0.1.0-0",
+             "nodes": [{"node_id": "in1", "type_name": "Input", "config": {}},
+                       {"node_id": "out", "type_name": "Output", "config": {}}],
+             "wires": [{"src_node": "in1", "src_port": "out",
+                        "dst_node": "out", "dst_port": "msg"}]}
+    assert service.validate_graph_dict(graph, lib).ok  # Input 已在宿主环境注册
+    sid = service.start_session(service.decode_graph(graph), lib, registry)
+    assert service.inject_event(sid, "in1", "in", "你好,世界")
+    assert _wait_for(lambda: service.session_view(sid) is not None
+                     and "[out] 你好,世界" in service.session_view(sid)["console"])
+    view = service.session_view(sid)
+    assert view["snapshot"]["nodes"]["in1"]["state"]["last"] == "你好,世界"
+    # 相同内容不重复产出;新内容再次产出
+    assert service.inject_event(sid, "in1", "in", "你好,世界")
+    assert service.inject_event(sid, "in1", "in", "第二条")
+    assert _wait_for(lambda: "[out] 第二条" in service.session_view(sid)["console"])
+    assert service.session_view(sid)["console"].count("[out] 你好,世界") == 1
+    service.stop_session(sid)
+    assert not service.inject_event(sid, "in1", "in", "x")
+
+
+def test_session_pause_resume():
+    """暂停 = 传播闸门:源节点内部继续发射,输出结果不向后传播;恢复后冲刷补全。"""
+    lib, registry = service.builtin_env()
+    sid = service.start_session(service.decode_graph(LOOP), lib, registry, seed=0)
+    assert _wait_for(lambda: service.session_view(sid) is not None
+                     and service.session_view(sid)["run_no"] >= 1)
+    assert service.pause_session(sid)
+    time.sleep(1.3)  # 暂停期间 clock 内部继续计数,counter 冻结
+    view = service.session_view(sid)
+    clock_count = view["snapshot"]["nodes"]["clock"]["state"]["count"]
+    assert clock_count >= 2  # 内部仍在运行
+    assert view["snapshot"]["nodes"]["counter"]["state"]["count"] == 1  # 传递停住
+    assert service.resume_session(sid)
+    # 恢复:冲刷挂起投递,counter 补上暂停期间的最新 count
+    assert _wait_for(lambda: service.session_view(sid)["snapshot"]["nodes"]
+                     ["counter"]["state"]["count"] >= 1 + clock_count)
+    service.stop_session(sid)
+    assert not service.pause_session(sid)
 
 
 def test_workspace_roundtrip_and_atomic_write(tmp_path, monkeypatch):

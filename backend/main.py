@@ -11,11 +11,14 @@
 
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException
+import asyncio
+from typing import Any
+
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from eidolon_graph.model import serialize
+from eidolon_graph.model import Graph, ValidationError, serialize
 
 # 兼容两种启动方式:`uvicorn backend.main:app`(仓库根)与
 # `cd backend && uvicorn main:app`(scripts/start.sh 的开发期方式)。
@@ -45,12 +48,10 @@ class OpsBody(BaseModel):
     ops: list[dict]
 
 
-class PreviewBody(BaseModel):
+class PreviewStartBody(BaseModel):
     graph: dict | None = None
     name: str | None = None
-    ticks: int = 1
     seed: int = 0
-    trace: bool = False
 
 
 @app.get("/api/health")
@@ -108,9 +109,7 @@ def apply_ops(name: str, body: OpsBody) -> dict:
             "graph": serialize.graph_to_dict(draft), "report": report.to_dict()}
 
 
-@app.post("/api/preview")
-def preview(body: PreviewBody) -> dict:
-    lib, registry = service.builtin_env()
+def _resolve_preview_graph(body: PreviewStartBody) -> Graph:
     if body.graph is not None:
         data = body.graph
     elif body.name is not None:
@@ -121,11 +120,78 @@ def preview(body: PreviewBody) -> dict:
     else:
         raise HTTPException(400, "需要提供 graph 或 name")
     try:
-        graph = service.decode_graph(data)
+        return service.decode_graph(data)
     except Exception as e:  # 版本不兼容 / 格式损坏
         raise HTTPException(400, str(e))
-    return service.run_preview(graph, lib, registry, ticks=body.ticks,
-                               seed=body.seed, trace=body.trace)
+
+
+@app.post("/api/preview/start")
+def preview_start(body: PreviewStartBody) -> dict:
+    """新建预览会话:世界常驻,前端按节奏推进 run()(事件驱动,无步数)。"""
+    lib, registry = service.builtin_env()
+    graph = _resolve_preview_graph(body)
+    try:
+        sid = service.start_session(graph, lib, registry, seed=body.seed)
+    except ValidationError as e:
+        raise HTTPException(422, {"detail": "图校验失败,拒绝运行", "report": e.report.to_dict()})
+    return {"session": sid}
+
+
+@app.websocket("/api/preview/sessions/{sid}/ws")
+async def preview_ws(ws: WebSocket, sid: str) -> None:
+    """运行中状态推送:世界自驱(事件源 = 节点),本端点只观察——run_no 变化时
+    推送最新快照 + 控制台 + 日志。"""
+    await ws.accept()
+    if not service.session_alive(sid):
+        await ws.close(code=4404)
+        return
+    last_run = -1
+    try:
+        while service.session_alive(sid):
+            view = service.session_view(sid)
+            if view is None:
+                break
+            if view["run_no"] != last_run:
+                last_run = view["run_no"]
+                await ws.send_json(view)
+            await asyncio.sleep(0.1)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await ws.close()
+
+
+class InjectBody(BaseModel):
+    node: str
+    port: str
+    value: Any
+
+
+@app.post("/api/preview/sessions/{sid}/inject")
+def preview_inject(sid: str, body: InjectBody) -> dict:
+    """注入宿主事件(手动触发):与节点产出数据向后传播同构。"""
+    if not service.inject_event(sid, body.node, body.port, body.value):
+        raise HTTPException(404, f"运行会话 '{sid}' 不存在或已停止")
+    return {"ok": True}
+
+
+@app.post("/api/preview/sessions/{sid}/pause")
+def preview_pause(sid: str) -> dict:
+    if not service.pause_session(sid):
+        raise HTTPException(404, f"运行会话 '{sid}' 不存在或已停止")
+    return {"paused": True}
+
+
+@app.post("/api/preview/sessions/{sid}/resume")
+def preview_resume(sid: str) -> dict:
+    if not service.resume_session(sid):
+        raise HTTPException(404, f"运行会话 '{sid}' 不存在或已停止")
+    return {"resumed": True}
+
+
+@app.delete("/api/preview/sessions/{sid}")
+def preview_stop(sid: str) -> dict:
+    return {"stopped": service.stop_session(sid)}
 
 
 # 生产期:npm run build 产出 dist/,由本服务同源托管整站(开发期 Vite 直连后端)。

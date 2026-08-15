@@ -1,12 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { ReactFlowProvider } from 'reactflow'
 import { api } from './api.js'
+import useRunSession from './useRunSession.js'
+import TopMenu from './components/TopMenu.jsx'
 import NodePalette from './components/NodePalette.jsx'
 import GraphCanvas from './components/GraphCanvas.jsx'
 import Inspector from './components/Inspector.jsx'
-import PreviewPanel from './components/PreviewPanel.jsx'
+import RunPanel from './components/RunPanel.jsx'
+import ConsolePanel from './components/ConsolePanel.jsx'
 
 const NEW_GRAPH = () => ({ name: 'untitled', kernel_version: '0.1.0-0', nodes: [], wires: [] })
+const randomSeed = () => Math.floor(Math.random() * 2 ** 31)
 
 export default function App() {
   const [graphs, setGraphs] = useState([])
@@ -16,10 +20,17 @@ export default function App() {
   const [specs, setSpecs] = useState([])
   const [selected, setSelected] = useState(null)
   const [notice, setNotice] = useState(null)
+  const [consoleVisible, setConsoleVisible] = useState(true)
+  const [consoleHeight, setConsoleHeight] = useState(180)  // 底部控制台高度(拖动上缘调整)
+  // 随机种子:不需要手动设置,每张图新建/载入时自动随机
+  const [seed, setSeed] = useState(randomSeed)
 
   // 节点摆放位置是编辑器侧表现元数据(图资产为内核纯格式),存 localStorage 按图名隔离
   const layoutKey = `ge-layout:${name}`
   const [layout, setLayout] = useState({})
+
+  // 运行会话(世界自驱,事件源 = 节点)
+  const run = useRunSession(graph, seed)
 
   useEffect(() => {
     api.listNodeTypes().then((r) => setSpecs(r.node_types)).catch((e) => setNotice(String(e.message)))
@@ -44,6 +55,12 @@ export default function App() {
 
   const applyOps = useCallback(
     async (ops) => {
+      // 运行时图锁定编辑:世界按运行时的图自驱,编辑操作在运行期间被拒绝
+      // (先「结束」再编辑;宿主注入 Input 等运行时交互不受影响)
+      if (run.status !== 'idle') {
+        flashNotice('运行中,图已锁定编辑(请先点「结束」)')
+        return null
+      }
       try {
         const r = await api.applyOps(name, graph, ops)
         setGraph(r.graph)
@@ -53,7 +70,7 @@ export default function App() {
         flashNotice(String(e.message))
       }
     },
-    [name, graph, flashNotice],
+    [name, graph, flashNotice, run.status],
   )
 
   const onLayout = useCallback(
@@ -75,6 +92,7 @@ export default function App() {
     setGraph(r.graph)
     setReport(r.report)
     setSelected(null)
+    setSeed(randomSeed()) // 每张图自动随机种子
   }
 
   const newGraph = () => {
@@ -82,6 +100,12 @@ export default function App() {
     setGraph(NEW_GRAPH())
     setReport({ errors: [], warnings: [] })
     setSelected(null)
+    setSeed(randomSeed())
+  }
+
+  const renameGraph = () => {
+    const nn = window.prompt('新图名:', name)
+    if (nn && nn.trim() && nn.trim() !== name) setName(nn.trim())
   }
 
   const save = async () => {
@@ -112,6 +136,15 @@ export default function App() {
     [applyOps, onLayout],
   )
 
+  const handleInject = useCallback(
+    async (nodeId, port, value) => {
+      const r = await run.inject(nodeId, port, value)
+      if (!r.ok) flashNotice(r.message)
+      return r
+    },
+    [run.inject, flashNotice],
+  )
+
   const selectedNode = useMemo(
     () => graph.nodes.find((n) => n.node_id === selected) || null,
     [graph.nodes, selected],
@@ -125,18 +158,25 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <span className="brand">Eidolon Graph Editor</span>
-        <label>图名
-          <input value={name} onChange={(e) => setName(e.target.value)} />
-        </label>
-        <select value={name} onChange={(e) => loadGraph(e.target.value)}>
-          <option value={name} disabled>— 载入已保存 —</option>
-          {graphs.map((g) => (
-            <option key={g} value={g}>{g}</option>
-          ))}
-        </select>
-        <button onClick={newGraph}>新建</button>
-        <button className="primary" onClick={save}>保存</button>
-        <button className="danger" onClick={removeGraph}>删除</button>
+        <TopMenu
+          graphs={graphs}
+          name={name}
+          runStatus={run.status}
+          consoleVisible={consoleVisible}
+          locked={run.status !== 'idle'}
+          actions={{
+            onNew: newGraph,
+            onLoad: loadGraph,
+            onRename: renameGraph,
+            onSave: save,
+            onDelete: removeGraph,
+            onRun: run.start,
+            onPause: run.pause,
+            onResume: run.resume,
+            onEnd: run.end,
+            onToggleConsole: () => setConsoleVisible((v) => !v),
+          }}
+        />
       </header>
 
       {notice && <div className="notice">{notice}</div>}
@@ -153,7 +193,7 @@ export default function App() {
       </div>
 
       <div className="main">
-        <NodePalette specs={specs} onAdd={(t) => addNode(t)} />
+        <NodePalette specs={specs} onAdd={(t) => addNode(t)} locked={run.status !== 'idle'} />
         <ReactFlowProvider>
           <GraphCanvas
             graph={graph}
@@ -167,10 +207,28 @@ export default function App() {
           />
         </ReactFlowProvider>
         <div className="side">
-          <Inspector node={selectedNode} spec={selectedSpec} applyOps={applyOps} onClose={() => setSelected(null)} />
-          <PreviewPanel graph={graph} />
+          <Inspector
+            node={selectedNode}
+            spec={selectedSpec}
+            applyOps={applyOps}
+            onClose={() => setSelected(null)}
+            onInject={handleInject}
+          />
+          <RunPanel
+            snap={run.snap}
+            status={run.status}
+            error={run.error}
+          />
         </div>
       </div>
+
+      {consoleVisible && (
+        <ConsolePanel
+          lines={run.consoleLines}
+          height={consoleHeight}
+          onHeightChange={setConsoleHeight}
+        />
+      )}
     </div>
   )
 }

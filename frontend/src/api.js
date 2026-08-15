@@ -33,5 +33,14 @@ export const api = {
   deleteGraph: (name) => req('DELETE', `/api/graphs/${encodeURIComponent(name)}`),
   applyOps: (name, graph, ops) =>
     req('POST', `/api/graphs/${encodeURIComponent(name)}/ops`, { graph, ops }),
-  preview: (body) => req('POST', '/api/preview', body),
+  previewStart: (body) => req('POST', '/api/preview/start', body),
+  previewStop: (sid) => req('DELETE', `/api/preview/sessions/${encodeURIComponent(sid)}`),
+  // 注入宿主事件(手动触发):与节点产出数据向后传播同构
+  previewInject: (sid, body) =>
+    req('POST', `/api/preview/sessions/${encodeURIComponent(sid)}/inject`, body),
+  previewPause: (sid) => req('POST', `/api/preview/sessions/${encodeURIComponent(sid)}/pause`),
+  previewResume: (sid) => req('POST', `/api/preview/sessions/${encodeURIComponent(sid)}/resume`),
+  // 运行中状态推送:世界自驱,前端只观察(不推进、不伪造事件)
+  previewWs: (sid) =>
+    new WebSocket(`${BASE.replace(/^http/, 'ws')}/api/preview/sessions/${encodeURIComponent(sid)}/ws`),
 }

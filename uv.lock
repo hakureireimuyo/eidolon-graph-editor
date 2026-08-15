@@ -57,7 +57,7 @@ wheels = [
 [[package]]
 name = "eidolon-graph"
 version = "0.1.0"
-source = { git = "ssh://git@github.com/hakureireimuyo/eidolon-graph.git?rev=19fb10740f75a6911ef5afcd29009d11bc819b9c#19fb10740f75a6911ef5afcd29009d11bc819b9c" }
+source = { git = "ssh://git@github.com/hakureireimuyo/eidolon-graph.git?rev=f238034f4db6101a35c014eed7247f80e85a6544#f238034f4db6101a35c014eed7247f80e85a6544" }
 
 [[package]]
 name = "eidolon-graph-editor"
@@ -76,7 +76,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "eidolon-graph", git = "ssh://git@github.com/hakureireimuyo/eidolon-graph.git?rev=19fb10740f75a6911ef5afcd29009d11bc819b9c" },
+    { name = "eidolon-graph", git = "ssh://git@github.com/hakureireimuyo/eidolon-graph.git?rev=f238034f4db6101a35c014eed7247f80e85a6544" },
     { name = "fastapi", specifier = ">=0.110" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.27" },
 ]
