@@ -8,6 +8,8 @@ export default function useRunSession(graph, seed) {
   const [status, setStatus] = useState('idle')
   const [snap, setSnap] = useState(null)
   const [error, setError] = useState(null)
+  // 编译检查结果:只在点「运行」时检查一次——运行前清空,校验不通过时输出新错误
+  const [problems, setProblems] = useState(null)  // {errors: [], warnings: []} | null
   const [consoleLines, setConsoleLines] = useState([])
   const wsRef = useRef(null)
   const sidRef = useRef(null)
@@ -30,6 +32,7 @@ export default function useRunSession(graph, seed) {
 
   const start = useCallback(async () => {
     setError(null)
+    setProblems(null) // 清空上一轮错误:每次点「运行」只输出本轮检查结果
     try {
       const r = await api.previewStart({ graph, seed })
       sidRef.current = r.session
@@ -51,8 +54,13 @@ export default function useRunSession(graph, seed) {
       wsRef.current = ws
       setStatus('running')
     } catch (e) {
-      if (e.body?.detail?.report) setError((e.body.detail.report.errors || []).join(';'))
-      else setError(String(e.message))
+      // 编译检查不通过:不运行,错误进「问题」tab(检查只发生在这里)
+      if (e.body?.detail?.report) {
+        const rep = e.body.detail.report
+        setProblems({ errors: rep.errors || [], warnings: rep.warnings || [] })
+      } else {
+        setProblems({ errors: [String(e.message)], warnings: [] })
+      }
     }
   }, [graph, seed, applyView])
 
@@ -102,5 +110,5 @@ export default function useRunSession(graph, seed) {
   // 卸载时结束会话
   useEffect(() => end, [end]) // eslint-disable-line
 
-  return { status, snap, consoleLines, error, start, pause, resume, end, inject }
+  return { status, snap, consoleLines, problems, error, start, pause, resume, end, inject }
 }

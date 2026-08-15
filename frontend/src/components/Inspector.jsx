@@ -13,7 +13,7 @@ function parseValue(s) {
 const SEMANTIC_LABEL = { enable: '门控', level: '电平' }
 const LEVEL_LABEL = { active: '高', inactive: '低' }
 
-export default function Inspector({ node, spec, applyOps, onClose, onInject }) {
+export default function Inspector({ node, spec, applyOps, onClose, onInject, onCollapse }) {
   const [cfg, setCfg] = useState({})
   const [inputValue, setInputValue] = useState('')
   const [injecting, setInjecting] = useState(false)
@@ -34,11 +34,29 @@ export default function Inspector({ node, spec, applyOps, onClose, onInject }) {
     }
   }
 
-  if (!node) return <aside className="panel inspector empty">未选中节点(点击画布节点)</aside>
+  // 右侧面板 = 节点的编辑器/查看器(游戏引擎对象编辑面板):收起/展开在面板头
+  const head = (
+    <div className="panel-head">
+      <h3>{node ? (spec ? spec.name : node.type_name) : '节点'}</h3>
+      <div className="panel-head-btns">
+        {node && <button className="close" onClick={onClose} title="取消选中">✕</button>}
+        <button className="close" onClick={onCollapse} title="收起面板">▶</button>
+      </div>
+    </div>
+  )
+
+  if (!node) {
+    return (
+      <aside className="panel inspector">
+        {head}
+        <p className="dim">未选中节点(点击画布节点)</p>
+      </aside>
+    )
+  }
   if (!spec) {
     return (
       <aside className="panel inspector">
-        <h3>{node.node_id}</h3>
+        {head}
         <p className="warn">类型 '{node.type_name}' 未知:节点类型资产未注册</p>
         <button className="danger" onClick={() => applyOps([{ op: 'remove_node', node_id: node.node_id }])}>
           删除节点
@@ -50,10 +68,7 @@ export default function Inspector({ node, spec, applyOps, onClose, onInject }) {
   const fields = spec.config || []
   return (
     <aside className="panel inspector">
-      <div className="panel-head">
-        <h3>{spec.name}</h3>
-        <button className="close" onClick={onClose} title="取消选中">✕</button>
-      </div>
+      {head}
       <div className="inspector-id">
         {node.node_id}
         {spec.auto && <span className="gnode-badge gnode-badge-auto">自走</span>}

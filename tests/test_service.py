@@ -265,11 +265,12 @@ def test_input_node_inject_propagates():
                      and "[out] 你好,世界" in service.session_view(sid)["console"])
     view = service.session_view(sid)
     assert view["snapshot"]["nodes"]["in1"]["state"]["last"] == "你好,世界"
-    # 相同内容不重复产出;新内容再次产出
+    # 同值重复注入同样产出:手动点击每次都是新事件(内核不做值去重)
     assert service.inject_event(sid, "in1", "in", "你好,世界")
+    assert _wait_for(lambda: service.session_view(sid)["console"].count("[out] 你好,世界") == 2)
     assert service.inject_event(sid, "in1", "in", "第二条")
     assert _wait_for(lambda: "[out] 第二条" in service.session_view(sid)["console"])
-    assert service.session_view(sid)["console"].count("[out] 你好,世界") == 1
+    assert service.session_view(sid)["console"].count("[out] 你好,世界") == 2
     service.stop_session(sid)
     assert not service.inject_event(sid, "in1", "in", "x")
 

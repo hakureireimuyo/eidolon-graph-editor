@@ -6,7 +6,8 @@
 - 前端只经本服务接触内核——编辑器内嵌引擎(Unity / Unreal 同构)。
 
 数据(图资产)与源码分离,存于 DATA_ROOT(默认 workspace/,可配置)。
-资产文件永远合法:保存前校验,预览前再校验(内核运行时加载时还会校验一遍)。
+保存不校验(草稿可存,编辑不被打断);校验只在点「运行」时检查一次——
+校验不通过拒绝运行,错误信息进前端「问题」tab。
 """
 
 from __future__ import annotations
@@ -83,12 +84,9 @@ def get_graph(name: str) -> dict:
 
 @app.put("/api/graphs/{name}")
 def save_graph(name: str, body: GraphBody) -> dict:
-    lib, _ = service.builtin_env()
-    report = service.validate_graph_dict(body.graph, lib)
-    if not report.ok:
-        raise HTTPException(422, {"detail": "图校验失败,拒绝保存", "report": report.to_dict()})
+    # 草稿可存:保存不校验(编译检查只在点「运行」时做一次,错误进「问题」tab)
     workspace.write_graph(name, body.graph)
-    return {"name": name, "report": report.to_dict()}
+    return {"name": name}
 
 
 @app.delete("/api/graphs/{name}")

@@ -6,7 +6,6 @@ import TopMenu from './components/TopMenu.jsx'
 import NodePalette from './components/NodePalette.jsx'
 import GraphCanvas from './components/GraphCanvas.jsx'
 import Inspector from './components/Inspector.jsx'
-import RunPanel from './components/RunPanel.jsx'
 import ConsolePanel from './components/ConsolePanel.jsx'
 
 const NEW_GRAPH = () => ({ name: 'untitled', kernel_version: '0.1.0-0', nodes: [], wires: [] })
@@ -16,12 +15,16 @@ export default function App() {
   const [graphs, setGraphs] = useState([])
   const [name, setName] = useState('untitled')
   const [graph, setGraph] = useState(NEW_GRAPH)
-  const [report, setReport] = useState({ errors: [], warnings: [] })
   const [specs, setSpecs] = useState([])
   const [selected, setSelected] = useState(null)
   const [notice, setNotice] = useState(null)
+  // 底部控制台:tab(控制台输出 / 问题 / 节点)+ 收起展开 + 高度(拖动上缘调整)
+  const [consoleTab, setConsoleTab] = useState('console')
   const [consoleVisible, setConsoleVisible] = useState(true)
-  const [consoleHeight, setConsoleHeight] = useState(180)  // 底部控制台高度(拖动上缘调整)
+  const [consoleHeight, setConsoleHeight] = useState(180)
+  // 左右面板收起展开:节点面板可向左侧收起,右侧节点编辑器同理
+  const [paletteCollapsed, setPaletteCollapsed] = useState(false)
+  const [sideCollapsed, setSideCollapsed] = useState(false)
   // 随机种子:不需要手动设置,每张图新建/载入时自动随机
   const [seed, setSeed] = useState(randomSeed)
 
@@ -45,6 +48,14 @@ export default function App() {
     }
   }, [layoutKey])
 
+  // 点「运行」编译检查不通过:错误进「问题」tab(清空旧错误、输出新错误)
+  useEffect(() => {
+    if (run.problems) {
+      setConsoleTab('problems')
+      setConsoleVisible(true)
+    }
+  }, [run.problems])
+
   const refreshGraphs = () =>
     api.listGraphs().then((r) => setGraphs(r.graphs)).catch(() => {})
 
@@ -64,7 +75,6 @@ export default function App() {
       try {
         const r = await api.applyOps(name, graph, ops)
         setGraph(r.graph)
-        setReport(r.report)
         return r
       } catch (e) {
         flashNotice(String(e.message))
@@ -86,11 +96,19 @@ export default function App() {
     [layoutKey],
   )
 
+  // 点击画布节点:选中并切到「节点」tab 查看其状态与缓存(控制台自动展开)
+  const handleSelect = useCallback((id) => {
+    setSelected(id)
+    if (id) {
+      setConsoleTab('node')
+      setConsoleVisible(true)
+    }
+  }, [])
+
   const loadGraph = async (n) => {
     const r = await api.getGraph(n)
     setName(r.name)
     setGraph(r.graph)
-    setReport(r.report)
     setSelected(null)
     setSeed(randomSeed()) // 每张图自动随机种子
   }
@@ -98,7 +116,6 @@ export default function App() {
   const newGraph = () => {
     setName('untitled')
     setGraph(NEW_GRAPH())
-    setReport({ errors: [], warnings: [] })
     setSelected(null)
     setSeed(randomSeed())
   }
@@ -110,13 +127,11 @@ export default function App() {
 
   const save = async () => {
     try {
-      const r = await api.saveGraph(name, graph)
-      setReport(r.report)
+      await api.saveGraph(name, graph)
       flashNotice(`已保存 ${name}`)
       refreshGraphs()
     } catch (e) {
-      if (e.body?.detail?.report) setReport(e.body.detail.report)
-      else flashNotice(String(e.message))
+      flashNotice(String(e.message))
     }
   }
 
@@ -153,6 +168,8 @@ export default function App() {
     () => (selectedNode ? specs.find((s) => s.name === selectedNode.type_name) : null),
     [selectedNode, specs],
   )
+  // 选中节点的运行时数据(WS 快照驱动,世界自驱期间实时更新)
+  const selectedSnapNode = run.snap?.nodes?.[selected] || null
 
   return (
     <div className="app">
@@ -181,19 +198,20 @@ export default function App() {
 
       {notice && <div className="notice">{notice}</div>}
 
-      <div className="report-bar">
-        <span className="report-errors">{report.errors.length} 个错误</span>
-        <span className="report-warnings">{report.warnings.length} 个提示</span>
-        {report.errors.map((e, i) => (
-          <span key={`e${i}`} className="report-item err" title={e}>[E] {e}</span>
-        ))}
-        {report.warnings.map((w, i) => (
-          <span key={`w${i}`} className="report-item warn" title={w}>[W] {w}</span>
-        ))}
-      </div>
-
       <div className="main">
-        <NodePalette specs={specs} onAdd={(t) => addNode(t)} locked={run.status !== 'idle'} />
+        {paletteCollapsed ? (
+          <aside className="palette palette-collapsed">
+            <button type="button" className="palette-toggle" onClick={() => setPaletteCollapsed(false)} title="展开节点面板">▶</button>
+            <span className="palette-collapsed-title">节点</span>
+          </aside>
+        ) : (
+          <NodePalette
+            specs={specs}
+            onAdd={(t) => addNode(t)}
+            locked={run.status !== 'idle'}
+            onCollapse={() => setPaletteCollapsed(true)}
+          />
+        )}
         <ReactFlowProvider>
           <GraphCanvas
             graph={graph}
@@ -201,33 +219,51 @@ export default function App() {
             layout={layout}
             onLayout={onLayout}
             selected={selected}
-            onSelect={setSelected}
+            onSelect={handleSelect}
             applyOps={applyOps}
             onNotice={flashNotice}
           />
         </ReactFlowProvider>
-        <div className="side">
-          <Inspector
-            node={selectedNode}
-            spec={selectedSpec}
-            applyOps={applyOps}
-            onClose={() => setSelected(null)}
-            onInject={handleInject}
-          />
-          <RunPanel
-            snap={run.snap}
-            status={run.status}
-            error={run.error}
-          />
+        <div className={`side${sideCollapsed ? ' side-collapsed' : ''}`}>
+          {sideCollapsed ? (
+            <>
+              <button type="button" className="side-toggle" onClick={() => setSideCollapsed(false)} title="展开节点编辑器">◀</button>
+              <span className="side-toggle-label">节点</span>
+            </>
+          ) : (
+            <Inspector
+              node={selectedNode}
+              spec={selectedSpec}
+              applyOps={applyOps}
+              onClose={() => setSelected(null)}
+              onInject={handleInject}
+              onCollapse={() => setSideCollapsed(true)}
+            />
+          )}
         </div>
       </div>
 
-      {consoleVisible && (
+      {consoleVisible ? (
         <ConsolePanel
           lines={run.consoleLines}
+          problems={run.problems}
+          error={run.error}
+          tab={consoleTab}
+          onTabChange={setConsoleTab}
+          node={selectedNode}
+          spec={selectedSpec}
+          snapNode={selectedSnapNode}
+          runStatus={run.status}
+          runNo={run.snap?.run_no}
+          seed={run.snap?.seed}
           height={consoleHeight}
           onHeightChange={setConsoleHeight}
+          onToggle={() => setConsoleVisible(false)}
         />
+      ) : (
+        <div className="console-collapsed">
+          <button type="button" className="console-toggle" onClick={() => setConsoleVisible(true)}>▲ 控制台</button>
+        </div>
       )}
     </div>
   )

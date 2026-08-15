@@ -40,13 +40,15 @@ function PaletteItem({ spec, onAdd, locked }) {
   )
 }
 
-export default function NodePalette({ specs, onAdd, locked }) {
+export default function NodePalette({ specs, onAdd, locked, onCollapse }) {
   const [collapsed, setCollapsed] = useState({})
   const toggle = (key) => setCollapsed((c) => ({ ...c, [key]: !c[key] }))
   return (
     <aside className="palette">
-      <h3>节点</h3>
-      <p className="palette-hint">{locked ? '运行中:图已锁定编辑' : '点击添加 / 拖入画布'}</p>
+      <div className="palette-head">
+        <h3>节点</h3>
+        <button type="button" className="palette-toggle" onClick={onCollapse} title="收起节点面板">◀</button>
+      </div>
       {CATEGORIES.map((cat) => {
         const items = specs.filter(cat.test)
         if (items.length === 0) return null
