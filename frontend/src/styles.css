@@ -300,6 +300,17 @@ button.close { padding: 0 8px; }
 .doc-p { margin: 2px 0; font-size: 11px; color: var(--dim); line-height: 1.5; }
 .doc-li { margin: 1px 0 1px 10px; font-size: 11px; color: var(--dim); line-height: 1.5; }
 
+/* 节点说明书悬浮窗(节点面板点击弹出) */
+.node-doc-popup {
+  position: fixed; z-index: 300; width: 300px; max-height: 300px; overflow-y: auto;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.popup-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.popup-head strong { font-size: 13px; }
+.popup-hint { color: var(--dim); font-size: 10px; }
+.popup-head .close { margin-left: auto; padding: 0 6px; }
+
 /* ---- 控制台(底部面板,VS Code 式:tabs + 拖动上缘调整高度,滚轮滚动) ---- */
 .running-dot { color: var(--ok); margin-left: 6px; }
 .paused-dot { color: var(--control); margin-left: 6px; }

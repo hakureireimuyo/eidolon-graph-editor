@@ -221,6 +221,9 @@ export default function GraphCanvas({
         // 按住标题区拖动实时跟随;端口区域(nodrag)不触发拖动
         dragHandle=".gnode-title"
         nodeDragThreshold={0}
+        // 禁用内置删除键处理(Delete 删除选中节点由 App 级快捷键统一接管,
+        // 避免受控 nodes 与内部 store 双重删除不一致)
+        deleteKeyCode={null}
         fitView
         proOptions={{ hideAttribution: true }}
       >

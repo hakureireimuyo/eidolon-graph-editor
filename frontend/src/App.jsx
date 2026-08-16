@@ -35,6 +35,25 @@ export default function App() {
   // 运行会话(世界自驱,事件源 = 节点)
   const run = useRunSession(graph, seed)
 
+  // Delete 键删除选中节点(输入框聚焦时不触发;运行中图锁定)
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'Delete') return
+      const t = e.target
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+      if (!selected) return
+      if (run.status !== 'idle') {
+        flashNotice('运行中,图已锁定编辑(请先点「结束」)')
+        return
+      }
+      applyOps([{ op: 'remove_node', node_id: selected }]).then((r) => {
+        if (r) setSelected(null)
+      })
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selected, run.status, applyOps, flashNotice])
+
   useEffect(() => {
     api.listNodeTypes().then((r) => setSpecs(r.node_types)).catch((e) => setNotice(String(e.message)))
     refreshGraphs()
@@ -146,15 +165,6 @@ export default function App() {
     newGraph()
   }
 
-  const addNode = useCallback(
-    async (typeName, pos) => {
-      const nodeId = `n${Math.random().toString(36).slice(2, 8)}`
-      if (pos) onLayout(nodeId, pos)
-      await applyOps([{ op: 'add_node', node: { node_id: nodeId, type_name: typeName, config: {} } }])
-    },
-    [applyOps, onLayout],
-  )
-
   const handleInject = useCallback(
     async (nodeId, port, value) => {
       const r = await run.inject(nodeId, port, value)
@@ -211,7 +221,6 @@ export default function App() {
         ) : (
           <NodePalette
             specs={specs}
-            onAdd={(t) => addNode(t)}
             locked={run.status !== 'idle'}
             onCollapse={() => setPaletteCollapsed(true)}
           />
