@@ -9,6 +9,7 @@
 - 节点声明顺序影响同一次单遍内的级联传播(旧内核"顺序无关"性质不成立)。
 """
 
+import json
 import time
 
 from eidolon_graph.model import ValidationError, serialize
@@ -347,14 +348,36 @@ def test_session_pause_resume():
 
 
 def test_workspace_roundtrip_and_atomic_write(tmp_path, monkeypatch):
+    """目录工程存取:图资产 + 编辑器元数据(坐标/种子)随工程往返。"""
+    from eidolon_graph_project import GraphProject
+
     monkeypatch.setattr(workspace, "DATA_ROOT", tmp_path)
-    assert workspace.list_graphs() == []
-    workspace.write_graph("测试 世界", LOOP)
-    assert workspace.list_graphs() == ["测试-世界"]
-    assert workspace.read_graph("测试 世界") == LOOP  # 保序往返
+    assert workspace.list_projects() == []
+    workspace.write_project("测试 世界", GraphProject(
+        graph=dict(LOOP),
+        editor_state={"version": 1, "seed": 7, "positions": {"clock": {"x": 1.5, "y": 2.5}}},
+    ))
+    assert workspace.list_projects() == ["测试-世界"]
+    loaded = workspace.read_project("测试 世界")
+    assert loaded.graph == LOOP  # 保序往返
+    assert loaded.positions() == {"clock": {"x": 1.5, "y": 2.5}}  # 坐标随工程
+    assert loaded.seed() == 7  # 种子随工程(读档续跑确定性可复现)
     # 原子写不产生残留 temp 文件
-    assert [p.name for p in workspace.graphs_dir().iterdir()] == ["测试-世界.json"]
-    workspace.delete_graph("测试 世界")
-    assert workspace.list_graphs() == []
+    assert [p.name for p in workspace.projects_dir().iterdir()] == ["测试-世界"]
+    workspace.delete_project("测试 世界")
+    assert workspace.list_projects() == []
     # 名称安全化:路径穿越等非法字符被清洗
-    assert workspace.graph_path("a/b\\c").name == "a-b-c.json"
+    assert workspace.project_dir("a/b\\c").name == "a-b-c"
+
+
+def test_workspace_legacy_graphs_migrated(tmp_path, monkeypatch):
+    """旧版 V0 一图一文件(graphs/<name>.json)首次访问时迁移为目录工程。"""
+    monkeypatch.setattr(workspace, "DATA_ROOT", tmp_path)
+    legacy_dir = tmp_path / "graphs"
+    legacy_dir.mkdir(parents=True)
+    (legacy_dir / "旧图.json").write_text(json.dumps(LOOP), encoding="utf-8")
+    assert workspace.list_projects() == ["旧图"]  # 迁移发生在列表时
+    loaded = workspace.read_project("旧图")
+    assert loaded.graph == LOOP  # 图资产原样
+    assert loaded.positions() == {}  # 元数据默认重建
+    assert (tmp_path / "projects" / "旧图" / "project.json").is_file()

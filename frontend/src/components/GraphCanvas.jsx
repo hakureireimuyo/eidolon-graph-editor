@@ -117,12 +117,12 @@ export default function GraphCanvas({
     [graph.wires, signalLevels],
   )
 
-  // 拖动中位置实时跟随(layout 状态连续更新,不写盘);松开时持久化
+  // 拖动中位置实时跟随:layout 状态连续更新(保存时随工程落盘)
   const onNodesChange = useCallback(
     (changes) => {
       for (const c of changes) {
         if (c.type === 'position' && c.dragging && c.position) {
-          onLayout(c.id, { x: c.position.x, y: c.position.y }, false)
+          onLayout(c.id, { x: c.position.x, y: c.position.y })
         }
       }
     },
@@ -216,7 +216,7 @@ export default function GraphCanvas({
         onNodesChange={onNodesChange}
         onNodeClick={(_, n) => onSelect(n.id)}
         onPaneClick={() => onSelect(null)}
-        onNodeDragStop={(_, n) => onLayout(n.id, n.position, true)}
+        onNodeDragStop={(_, n) => onLayout(n.id, n.position)}
         onEdgeClick={(_, e) => applyOps([{ op: 'remove_edge', wire: e.data.wire }])}
         // 按住标题区拖动实时跟随;端口区域(nodrag)不触发拖动
         dragHandle=".gnode-title"

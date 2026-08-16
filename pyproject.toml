@@ -7,13 +7,15 @@ name = "eidolon-graph-editor"
 version = "0.1.0"
 description = "Eidolon 可视化图编辑器:内嵌 eidolon-graph 内核(headless 预览 + 编辑事务),后续由 eidolon-studio 引用整合"
 requires-python = ">=3.11"
-# eidolon-graph(内核)以 git 源(pin rev)安装为正规第三方依赖,
-# 由下方 [tool.uv.sources] 声明;monorepo 检出与独立 clone 一致,无路径耦合。
-# 校验 / 编辑操作 / 预览全部复用内核,本仓库不重实现图语义。
+# eidolon-graph(内核)/ eidolon-graph-project(图工程存储)以 git 源(pin rev)
+# 安装为正规第三方依赖,由下方 [tool.uv.sources] 声明;monorepo 检出与
+# 独立 clone 一致,无路径耦合。校验 / 编辑操作 / 预览复用内核;
+# 工程存取(目录工程 + 编辑器元数据)复用 eidolon-graph-project。
 dependencies = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
     "eidolon-graph",
+    "eidolon-graph-project",
 ]
 
 [dependency-groups]
@@ -24,3 +26,4 @@ packages = ["backend"]
 
 [tool.uv.sources]
 eidolon-graph = { git = "ssh://git@github.com/hakureireimuyo/eidolon-graph.git", rev = "846ef0630485d8b50297116b8d05d97fff01ff58" }
+eidolon-graph-project = { git = "ssh://git@github.com/hakureireimuyo/eidolon-graph-project.git", rev = "347a8c774f1db1785f2ac90d961f4d29df65eaf5" }

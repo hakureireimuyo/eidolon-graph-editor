@@ -42,6 +42,7 @@ app.add_middleware(
 
 class GraphBody(BaseModel):
     graph: dict
+    editor_state: dict | None = None
 
 
 class OpsBody(BaseModel):
@@ -68,30 +69,33 @@ def node_types() -> dict:
 
 @app.get("/api/graphs")
 def list_graphs() -> dict:
-    return {"graphs": workspace.list_graphs()}
+    return {"graphs": workspace.list_projects()}
 
 
 @app.get("/api/graphs/{name}")
 def get_graph(name: str) -> dict:
     try:
-        data = workspace.read_graph(name)
+        project = workspace.read_project(name)
     except FileNotFoundError:
-        raise HTTPException(404, f"图 '{name}' 不存在")
-    lib, _ = service.builtin_env()
-    return {"name": name, "graph": data,
-            "report": service.validate_graph_dict(data, lib).to_dict()}
+        raise HTTPException(404, f"工程 '{name}' 不存在")
+    return {"name": name, "graph": project.graph, "editor_state": project.editor_state}
 
 
 @app.put("/api/graphs/{name}")
 def save_graph(name: str, body: GraphBody) -> dict:
-    # 草稿可存:保存不校验(编译检查只在点「运行」时做一次,错误进「问题」tab)
-    workspace.write_graph(name, body.graph)
+    # 草稿可存:保存不校验(编译检查只在点「运行」时做一次,错误进「问题」tab);
+    # 编辑器元数据(节点坐标/种子)随工程保存。
+    from eidolon_graph_project import GraphProject, empty_editor_state
+
+    project = GraphProject(graph=body.graph,
+                           editor_state=body.editor_state or empty_editor_state())
+    workspace.write_project(name, project)
     return {"name": name}
 
 
 @app.delete("/api/graphs/{name}")
 def delete_graph(name: str) -> dict:
-    workspace.delete_graph(name)
+    workspace.delete_project(name)
     return {"name": name}
 
 
@@ -112,9 +116,9 @@ def _resolve_preview_graph(body: PreviewStartBody) -> Graph:
         data = body.graph
     elif body.name is not None:
         try:
-            data = workspace.read_graph(body.name)
+            data = workspace.read_project(body.name).graph
         except FileNotFoundError:
-            raise HTTPException(404, f"图 '{body.name}' 不存在")
+            raise HTTPException(404, f"工程 '{body.name}' 不存在")
     else:
         raise HTTPException(400, "需要提供 graph 或 name")
     try:

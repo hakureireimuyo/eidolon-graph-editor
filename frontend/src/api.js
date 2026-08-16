@@ -29,7 +29,9 @@ export const api = {
   listNodeTypes: () => req('GET', '/api/node-types'),
   listGraphs: () => req('GET', '/api/graphs'),
   getGraph: (name) => req('GET', `/api/graphs/${encodeURIComponent(name)}`),
-  saveGraph: (name, graph) => req('PUT', `/api/graphs/${encodeURIComponent(name)}`, { graph }),
+  // 保存 = 图资产 + 编辑器元数据(坐标/种子)随工程落盘
+  saveGraph: (name, graph, editorState) =>
+    req('PUT', `/api/graphs/${encodeURIComponent(name)}`, { graph, editor_state: editorState }),
   deleteGraph: (name) => req('DELETE', `/api/graphs/${encodeURIComponent(name)}`),
   applyOps: (name, graph, ops) =>
     req('POST', `/api/graphs/${encodeURIComponent(name)}/ops`, { graph, ops }),

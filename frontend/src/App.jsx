@@ -12,6 +12,8 @@ import SettingsPopup, { renderConsoleLine } from './components/SettingsPopup.jsx
 const NEW_GRAPH = () => ({ name: 'untitled', kernel_version: '0.1.0-0', nodes: [], wires: [] })
 const randomSeed = () => Math.floor(Math.random() * 2 ** 31)
 const DEFAULT_CONSOLE_FORMAT = '[{time} {name} {node}] {line}'
+// 编辑器元数据版本(与 eidolon-graph-project 规范一致:条目级独立版本)
+const EDITOR_STATE_VERSION = 1
 
 export default function App() {
   const [graphs, setGraphs] = useState([])
@@ -39,8 +41,8 @@ export default function App() {
   })
   const [settingsOpen, setSettingsOpen] = useState(false)
 
-  // 节点摆放位置是编辑器侧表现元数据(图资产为内核纯格式),存 localStorage 按图名隔离
-  const layoutKey = `ge-layout:${name}`
+  // 节点摆放位置是编辑器侧表现元数据,随工程保存(editor_state.positions);
+  // 不再存 localStorage 按图名隔离——旧方案改名/新建即丢失,坐标无家可归
   const [layout, setLayout] = useState({})
 
   // 运行会话(世界自驱,事件源 = 节点)
@@ -50,14 +52,6 @@ export default function App() {
     api.listNodeTypes().then((r) => setSpecs(r.node_types)).catch((e) => setNotice(String(e.message)))
     refreshGraphs()
   }, [])
-
-  useEffect(() => {
-    try {
-      setLayout(JSON.parse(localStorage.getItem(layoutKey) || '{}'))
-    } catch (_) {
-      setLayout({})
-    }
-  }, [layoutKey])
 
   // 点「运行」编译检查不通过:错误进「问题」tab(清空旧错误、输出新错误)
   useEffect(() => {
@@ -127,22 +121,10 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [selected, run.status, applyOps, flashNotice])
 
-  // 拖动中 persist=false:位置实时跟随鼠标(layout 状态连续更新,不写盘);
-  // 松开时 persist=true:持久化到 localStorage
-  const onLayout = useCallback(
-    (nodeId, pos, persist = true) => {
-      setLayout((prev) => {
-        const next = { ...prev, [nodeId]: pos }
-        if (persist) {
-          try {
-            localStorage.setItem(layoutKey, JSON.stringify(next))
-          } catch (_) {}
-        }
-        return next
-      })
-    },
-    [layoutKey],
-  )
+  // 位置实时跟随鼠标:layout 状态连续更新,保存时随工程落盘(editor_state.positions)
+  const onLayout = useCallback((nodeId, pos) => {
+    setLayout((prev) => ({ ...prev, [nodeId]: pos }))
+  }, [])
 
   // 点击画布节点:选中并切到「节点」tab 查看其状态与缓存(控制台自动展开)
   const handleSelect = useCallback((id) => {
@@ -158,13 +140,17 @@ export default function App() {
     setName(r.name)
     setGraph(r.graph)
     setSelected(null)
-    setSeed(randomSeed()) // 每张图自动随机种子
+    // 编辑器元数据随工程:坐标与种子恢复(读档续跑确定性可复现)
+    const es = r.editor_state || {}
+    setLayout(es.positions || {})
+    setSeed(es.seed ?? randomSeed())
   }
 
   const newGraph = () => {
     setName('untitled')
     setGraph(NEW_GRAPH())
     setSelected(null)
+    setLayout({})
     setSeed(randomSeed())
   }
 
@@ -175,7 +161,8 @@ export default function App() {
 
   const save = async () => {
     try {
-      await api.saveGraph(name, graph)
+      // 编辑器元数据(坐标/种子)随工程保存,与图资产一起落盘
+      await api.saveGraph(name, graph, { version: EDITOR_STATE_VERSION, seed, positions: layout })
       flashNotice(`已保存 ${name}`)
       refreshGraphs()
     } catch (e) {

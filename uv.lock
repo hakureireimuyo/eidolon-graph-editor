@@ -65,6 +65,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "eidolon-graph" },
+    { name = "eidolon-graph-project" },
     { name = "fastapi" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -77,12 +78,18 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "eidolon-graph", git = "ssh://git@github.com/hakureireimuyo/eidolon-graph.git?rev=846ef0630485d8b50297116b8d05d97fff01ff58" },
+    { name = "eidolon-graph-project", git = "ssh://git@github.com/hakureireimuyo/eidolon-graph-project.git?rev=347a8c774f1db1785f2ac90d961f4d29df65eaf5" },
     { name = "fastapi", specifier = ">=0.110" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.27" },
 ]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest" }]
+
+[[package]]
+name = "eidolon-graph-project"
+version = "1.0.0"
+source = { git = "ssh://git@github.com/hakureireimuyo/eidolon-graph-project.git?rev=347a8c774f1db1785f2ac90d961f4d29df65eaf5#347a8c774f1db1785f2ac90d961f4d29df65eaf5" }
 
 [[package]]
 name = "fastapi"

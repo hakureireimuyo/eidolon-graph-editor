@@ -1,20 +1,34 @@
-"""工作区:图资产文件的存取(用户数据与源码严格分离,gitignored)。
+"""工作区:图工程目录的存取(用户数据与源码严格分离,gitignored)。
 
-布局(卡带目录 V0):DATA_ROOT/graphs/<name>.json —— 一图一文件;
-JSON 保序(内核 serialize,声明顺序承载全局写序);写入为 temp + replace 原子操作,
-坏文件不会出现。资产文件永远合法:保存前校验(见 main.py),运行时加载时内核会再校验一遍。
+布局(DATA_ROOT 可配置,默认 workspace):
+    DATA_ROOT/projects/<safe-name>/
+      project.json          # 工程清单:graph + editor_state + globals + resources
+      resources/            # 工程资源(数据文件 / sqlite)
+
+工程格式 = eidolon-graph-project 的目录工程形态(规范见其仓库):
+- 图资产 = 内核纯格式(保序 JSON,声明顺序承载全局写序);
+- 编辑器元数据(节点坐标 / 种子 / 视图)随工程走——不再是浏览器 localStorage;
+- 原子写由 eidolon_graph_project.to_folder 保证(资源先落盘,清单 temp+replace
+  作提交点),坏文件不会出现;
+- 保存不校验(草稿可存,见 main.py);校验只在点「运行」时做一次。
+
+旧版 V0 布局(DATA_ROOT/graphs/<name>.json,一图一文件)首次访问时
+一次性迁移为目录工程:图资产原样,编辑器元数据以默认值重建。
 """
 
 from __future__ import annotations
 
+import json
 import os
 import re
-import tempfile
+import shutil
 from pathlib import Path
 
-from eidolon_graph.model import serialize
+from eidolon_graph_project import GraphProject, from_folder, to_folder
 
 DATA_ROOT = Path(os.environ.get("EIDOLON_GRAPH_EDITOR_DATA", "workspace"))
+
+_LEGACY_GRAPHS_DIR_NAME = "graphs"
 
 
 def _safe(name: str) -> str:
@@ -22,44 +36,60 @@ def _safe(name: str) -> str:
     return s or "graph"
 
 
-def graphs_dir() -> Path:
-    d = DATA_ROOT / "graphs"
+def projects_dir() -> Path:
+    d = DATA_ROOT / "projects"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
-def graph_path(name: str) -> Path:
-    return graphs_dir() / f"{_safe(name)}.json"
+def project_dir(name: str) -> Path:
+    return projects_dir() / _safe(name)
 
 
-def list_graphs() -> list[str]:
-    return sorted(p.stem for p in graphs_dir().glob("*.json"))
+def _legacy_path(name: str) -> Path:
+    return DATA_ROOT / _LEGACY_GRAPHS_DIR_NAME / f"{_safe(name)}.json"
 
 
-def read_graph(name: str) -> dict:
-    p = graph_path(name)
-    if not p.is_file():
-        raise FileNotFoundError(f"图 '{name}' 不存在")
-    return serialize.loads(p.read_text(encoding="utf-8"))
-
-
-def write_graph(name: str, data: dict) -> None:
-    """原子写:temp + replace;JSON 保序(内核 serialize)。"""
-    p = graph_path(name)
-    fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=".tmp-", suffix=".json")
+def _migrate_legacy(name: str) -> None:
+    """旧版一图一文件 → 目录工程(仅一次:图资产原样,元数据默认重建)。"""
+    legacy = _legacy_path(name)
+    if not legacy.is_file() or project_dir(name).is_dir():
+        return
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(serialize.dumps(data))
-        os.replace(tmp, p)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
+        graph = json.loads(legacy.read_text(encoding="utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return  # 坏文件:跳过迁移,按不存在处理
+    to_folder(GraphProject(graph=graph), project_dir(name))
 
 
-def delete_graph(name: str) -> None:
-    p = graph_path(name)
-    if p.is_file():
-        p.unlink()
+def _migrate_all_legacy() -> None:
+    legacy_dir = DATA_ROOT / _LEGACY_GRAPHS_DIR_NAME
+    if legacy_dir.is_dir():
+        for p in legacy_dir.glob("*.json"):
+            _migrate_legacy(p.stem)
+
+
+def list_projects() -> list[str]:
+    """工程名清单(旧版一图一文件首次访问时迁移进目录工程)。"""
+    _migrate_all_legacy()
+    return sorted(p.parent.name for p in projects_dir().glob("*/project.json"))
+
+
+def read_project(name: str) -> GraphProject:
+    """读取工程:图资产 + 编辑器元数据 + 资源(目录工程形态)。"""
+    _migrate_legacy(name)
+    d = project_dir(name)
+    if not d.is_dir():
+        raise FileNotFoundError(f"工程 '{name}' 不存在")
+    return from_folder(d)
+
+
+def write_project(name: str, project: GraphProject) -> None:
+    """写出工程(目录工程形态,原子写由格式库保证)。"""
+    to_folder(project, project_dir(name))
+
+
+def delete_project(name: str) -> None:
+    d = project_dir(name)
+    if d.is_dir():
+        shutil.rmtree(d)

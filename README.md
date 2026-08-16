@@ -66,7 +66,7 @@ npm run dev                                            # 前端:http://localhost
 | `GET /api/health` | 健康检查 |
 | `GET /api/node-types` | 内置节点类型清单 + 说明书(调色板数据源 = 内核协议;文档 = 内核 `impl.doc()`,随 pin rev 传播) |
 | `GET /api/graphs` | 图资产清单 |
-| `GET /api/graphs/{name}` | 图资产 + 校验报告 |
+| `GET /api/graphs/{name}` | 工程 = 图资产 + 编辑器元数据(坐标/种子,随工程保存) |
 | `PUT /api/graphs/{name}` | 保存(不校验,草稿可存;编译检查只在点「运行」时做一次) |
 | `DELETE /api/graphs/{name}` | 删除 |
 | `POST /api/graphs/{name}/ops` | 编辑操作批量应用(草稿上,不落盘)→ 新图 + 校验报告 |
