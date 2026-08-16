@@ -45,7 +45,7 @@ bash scripts/start.sh   # 同时启动后端(:8000)与前端(:5173);停止:bash 
 
 打开 `http://localhost:5173`:从内置节点白名单(Clock/Counter/Threshold/…)拖入画布 → 连线(数据槽/信号槽着色区分:控制端口走信号槽,control-out → data-in 信号连线合法,数据输出连信号槽被拒绝)→ 配置节点 → 点「运行」跑起来。
 
-内核以 git 源 pin rev 安装(pyproject `[tool.uv.sources]`,当前指向 `f238034`,事件驱动 `World.run()` + 实时自驱调度 + 传播闸门暂停 + 节点库一节点一文件 + 可选参数端口 + 输入缓冲在节点基类 + 数据流同轮收敛)。
+内核以 git 源 pin rev 安装(pyproject `[tool.uv.sources]`,rev 由 `scripts/propagate-rev.sh` 自动传播,README 不写具体值;事件驱动 `World.run()` + 实时自驱调度 + 传播闸门暂停 + 节点库一节点一文件 + 可选参数端口 + 输入缓冲在节点基类 + 数据流同轮收敛)。
 
 ### 手动启动
 
