@@ -176,10 +176,12 @@ button.danger { background: #6b1f24; border-color: #a33; }
 .port-semantic { color: var(--control); font-style: normal; font-size: 10px; margin-left: 4px; }
 .port-bound { color: var(--ok); font-style: normal; font-size: 10px; margin-left: 4px; }
 
-/* 端口句柄:数据槽蓝(实心)/ 信号槽橙(空心) */
+/* 端口句柄:数据槽蓝(实心)/ 信号槽橙(空心,运行中按电平着色) */
 .handle { width: 9px; height: 9px; border: 1px solid #000; }
 .handle-data { background: var(--data); }
 .handle-signal { background: var(--panel); border-color: var(--control); }
+.handle-signal.lvl-active { background: var(--ok); border-color: #15803d; }
+.handle-signal.lvl-inactive { background: var(--danger); border-color: #b91c1c; }
 
 /* 端口车道:信号句柄统一上车道(控制信号只负责激活数据端口,不触发执行),
    数据句柄统一下车道;数据端口对之间虚线表示成对绑定关系 */

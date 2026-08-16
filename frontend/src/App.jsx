@@ -221,6 +221,7 @@ export default function App() {
             graph={graph}
             specs={specs}
             layout={layout}
+            snap={run.snap}
             onLayout={onLayout}
             selected={selected}
             onSelect={handleSelect}

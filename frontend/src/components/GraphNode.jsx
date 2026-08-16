@@ -19,10 +19,14 @@ function boundLabel(p) {
   return ''
 }
 
-function PortRow({ port }) {
+function PortRow({ port, levels }) {
   const isIn = port.side === 'in'
   const hasData = port.kind === 'data'
   const dual = hasData && port.slot  // 数据端口:信号/数据双句柄成对
+  // 信号句柄实时电平(绿=高,红=低;未运行不显示):世界运行后随 WS 快照更新
+  const lvl = isIn ? levels?.in?.[port.name] : levels?.out?.[port.name]
+  const lvlClass = lvl === 'active' ? ' lvl-active' : lvl === 'inactive' ? ' lvl-inactive' : ''
+  const lvlSuffix = lvl === 'active' ? '·电平:高' : lvl === 'inactive' ? '·电平:低' : ''
   return (
     <div className={`port-row${dual ? ' dual' : ''}`}>
       {dual && <span className="port-bind" />}
@@ -32,8 +36,8 @@ function PortRow({ port }) {
             type="target"
             position={Position.Left}
             id={`in:signal:${port.name}`}
-            className="handle handle-signal"
-            title="信号槽:显式信号线(屏蔽/路由),不连线走默认传导"
+            className={`handle handle-signal${lvlClass}`}
+            title={`信号槽:显式信号线(屏蔽/路由),不连线走默认传导${lvlSuffix}`}
           />
           {hasData && (
             <Handle
@@ -73,8 +77,8 @@ function PortRow({ port }) {
             type="source"
             position={Position.Right}
             id={`out:signal:${port.name}`}
-            className="handle handle-signal"
-            title="信号端口:电平自动传导,可显式拉线到任意信号接收端"
+            className={`handle handle-signal${lvlClass}`}
+            title={`信号端口:电平自动传导,可显式拉线到任意信号接收端${lvlSuffix}`}
           />
         </>
       )}
@@ -83,7 +87,7 @@ function PortRow({ port }) {
 }
 
 export default function GraphNode({ id, data }) {
-  const { label, spec, selected } = data
+  const { label, spec, selected, levels } = data
   if (!spec) {
     return (
       <div className="gnode gnode-unknown">
@@ -120,12 +124,12 @@ export default function GraphNode({ id, data }) {
       <div className="gnode-body">
         <div className="gnode-column">
           {ins.map((p) => (
-            <PortRow key={`in-${p.name}`} port={p} />
+            <PortRow key={`in-${p.name}`} port={p} levels={levels} />
           ))}
         </div>
         <div className="gnode-column right">
           {outs.map((p) => (
-            <PortRow key={`out-${p.name}`} port={p} />
+            <PortRow key={`out-${p.name}`} port={p} levels={levels} />
           ))}
         </div>
       </div>

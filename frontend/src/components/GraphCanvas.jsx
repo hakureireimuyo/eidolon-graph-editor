@@ -22,7 +22,7 @@ const portOf = (handleId) => {
 }
 
 export default function GraphCanvas({
-  graph, specs, layout, onLayout, selected, onSelect, applyOps, onNotice,
+  graph, specs, layout, snap, onLayout, selected, onSelect, applyOps, onNotice,
 }) {
   const { screenToFlowPosition } = useReactFlow()
   const specOf = useMemo(() => {
@@ -31,6 +31,51 @@ export default function GraphCanvas({
     return m
   }, [specs])
 
+  // 信号电平实时显示(世界运行时由 WS 快照驱动,green=高/red=低):
+  // 输出侧电平来自快照(数据输出自动传导 / 控制输出显式写);
+  // 数据输入电平按连线推导(显式信号线 → 上游输出电平;数据线 → 上游输出信号;
+  // 无连线 → 默认高);控制输入电平来自快照(默认电平兜底)。
+  const signalLevels = useMemo(() => {
+    if (!snap?.nodes) return null
+    const outLevelOf = (nid, port) => {
+      const spec = specOf[graph.nodes.find((n) => n.node_id === nid)?.type_name]
+      const ns = snap.nodes[nid]
+      if (!spec || !ns) return 'active'
+      if ((spec.data_out || []).some((p) => p.name === port)) {
+        return ns.output_signals?.[port] ?? 'active'
+      }
+      if ((spec.control_out || []).some((p) => p.name === port)) {
+        return ns.control_out_levels?.[port]
+          ?? (spec.control_out.find((p) => p.name === port)?.default_level || 'inactive')
+      }
+      return 'active'
+    }
+    const m = {}
+    for (const n of graph.nodes) {
+      const spec = specOf[n.type_name]
+      const ns = snap.nodes[n.node_id]
+      if (!spec || !ns) continue
+      const lv = { in: {}, out: {} }
+      for (const p of spec.data_out || []) lv.out[p.name] = ns.output_signals?.[p.name] ?? 'active'
+      for (const p of spec.control_out || []) {
+        lv.out[p.name] = ns.control_out_levels?.[p.name] ?? (p.default_level || 'inactive')
+      }
+      for (const p of spec.control_in || []) {
+        lv.in[p.name] = ns.control_in_levels?.[p.name] ?? (p.default_level || 'active')
+      }
+      for (const p of spec.data_in || []) {
+        const sigWire = graph.wires.find((w) =>
+          w.dst_node === n.node_id && w.dst_port === p.name && (w.dst_slot || 'data') === 'signal')
+        const dataWire = graph.wires.find((w) =>
+          w.dst_node === n.node_id && w.dst_port === p.name && (w.dst_slot || 'data') === 'data')
+        const src = sigWire || dataWire
+        lv.in[p.name] = src ? outLevelOf(src.src_node, src.src_port) : 'active'
+      }
+      m[n.node_id] = lv
+    }
+    return m
+  }, [snap, graph.nodes, graph.wires, specOf])
+
   // 图资产(内核格式)不携带 UI 坐标:摆放位置存布局表(编辑器侧表现元数据)
   const nodes = useMemo(
     () =>
@@ -38,23 +83,38 @@ export default function GraphCanvas({
         id: n.node_id,
         type: 'graph',
         position: layout[n.node_id] || { x: 60 + (i % 4) * 260, y: 60 + Math.floor(i / 4) * 200 },
-        data: { label: specOf[n.type_name]?.name || n.type_name, spec: specOf[n.type_name], selected: n.node_id === selected },
+        data: {
+          label: specOf[n.type_name]?.name || n.type_name,
+          spec: specOf[n.type_name],
+          selected: n.node_id === selected,
+          levels: signalLevels?.[n.node_id] || null,
+        },
       })),
-    [graph.nodes, specOf, layout, selected],
+    [graph.nodes, specOf, layout, selected, signalLevels],
   )
 
-  // 边按 dst_slot 定位两端句柄:data 线接数据句柄,signal 线接信号句柄
+  // 边按 dst_slot 定位两端句柄:data 线接数据句柄,signal 线接信号句柄;
+  // 信号线颜色随电平变化(淡红/淡绿),数据线保持默认
   const edges = useMemo(
     () =>
-      graph.wires.map((w, i) => ({
-        id: `e${i}`,
-        source: w.src_node,
-        target: w.dst_node,
-        sourceHandle: `out:${w.dst_slot || 'data'}:${w.src_port}`,
-        targetHandle: `in:${w.dst_slot || 'data'}:${w.dst_port}`,
-        data: { wire: w },
-      })),
-    [graph.wires],
+      graph.wires.map((w, i) => {
+        const slot = w.dst_slot || 'data'
+        const edge = {
+          id: `e${i}`,
+          source: w.src_node,
+          target: w.dst_node,
+          sourceHandle: `out:${slot}:${w.src_port}`,
+          targetHandle: `in:${slot}:${w.dst_port}`,
+          data: { wire: w },
+        }
+        if (slot === 'signal' && signalLevels) {
+          const lvl = signalLevels[w.src_node]?.out?.[w.src_port]
+          if (lvl === 'active') edge.style = { stroke: '#4f9e6f' }
+          else if (lvl === 'inactive') edge.style = { stroke: '#b5655e' }
+        }
+        return edge
+      }),
+    [graph.wires, signalLevels],
   )
 
   // 拖动中位置实时跟随(layout 状态连续更新,不写盘);松开时持久化
