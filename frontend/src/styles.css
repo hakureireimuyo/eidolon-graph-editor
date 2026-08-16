@@ -311,6 +311,29 @@ button.close { padding: 0 8px; }
 .popup-hint { color: var(--dim); font-size: 10px; }
 .popup-head .close { margin-left: auto; padding: 0 6px; }
 
+/* 设置浮窗(顶栏「⚙ 设置」按钮弹出) */
+.menu-btn-open { background: var(--panel-2); border-color: var(--border); }
+.settings-popup {
+  position: fixed; top: 46px; right: 12px; z-index: 300; width: 320px;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.settings-popup .config-field input {
+  background: var(--panel); color: var(--text);
+  border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px;
+  font-family: Consolas, 'Courier New', monospace; font-size: 12px;
+}
+.settings-tokens { display: flex; flex-direction: column; gap: 2px; }
+.token-item { color: var(--dim); font-size: 11px; }
+.token-item code { color: #7fb0f7; font-size: 11px; }
+.settings-preview {
+  color: var(--dim); font-size: 11px;
+  background: #12141a; border: 1px solid var(--border); border-radius: 4px;
+  padding: 4px 8px; font-family: Consolas, 'Courier New', monospace;
+  white-space: pre-wrap; word-break: break-all;
+}
+
 /* ---- 控制台(底部面板,VS Code 式:tabs + 拖动上缘调整高度,滚轮滚动) ---- */
 .running-dot { color: var(--ok); margin-left: 6px; }
 .paused-dot { color: var(--control); margin-left: 6px; }

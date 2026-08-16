@@ -30,7 +30,7 @@ function ProblemsView({ problems, error }) {
 }
 
 export default function ConsolePanel({
-  lines, problems, error, tab, onTabChange,
+  lines, formatLine, problems, error, tab, onTabChange,
   node, spec, snapNode, runStatus, runNo, seed,
   height, onHeightChange, onToggle,
 }) {
@@ -100,7 +100,7 @@ export default function ConsolePanel({
         <div className="console-lines" ref={boxRef}>
           {lines.length === 0 && <span className="dim">无输出</span>}
           {lines.map((l, i) => (
-            <div key={i} className="console-line">{l}</div>
+            <div key={i} className="console-line">{formatLine(l)}</div>
           ))}
         </div>
       )}

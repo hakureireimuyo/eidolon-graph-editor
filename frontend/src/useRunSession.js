@@ -18,17 +18,18 @@ export default function useRunSession(graph, seed) {
   const applyView = useCallback((v) => {
     setSnap(v.snapshot)
     // console / log 均为追加式累积表(后端只追加、前端只取尾部增量):
-    // console 条目 = {node, name, line},显示前缀 = [时间 节点名 节点编号]
+    // console 存结构化条目 {t: 接收时刻, name, node, line},展示格式由
+    // 设置面板模板在渲染期决定(改格式即时重渲染全部行);
+    // log 行沿用自身格式(r{run} [node] level: message)
     const seen = seenRef.current
     const fresh = []
     for (let i = seen.console; i < (v.console || []).length; i++) {
       const e = v.console[i]
-      const t = new Date().toLocaleTimeString('zh-CN', { hour12: false })
-      fresh.push(`[${t} ${e.name} ${e.node}] ${e.line}`)
+      fresh.push({ t: new Date(), name: e.name, node: e.node, line: e.line })
     }
     for (let i = seen.log; i < (v.log || []).length; i++) {
       const e = v.log[i]
-      fresh.push(`r${e.run} [${e.node || '-'}] ${e.level}: ${e.message}`)
+      fresh.push({ log: `r${e.run} [${e.node || '-'}] ${e.level}: ${e.message}` })
     }
     seen.console = (v.console || []).length
     seen.log = (v.log || []).length

@@ -7,9 +7,11 @@ import NodePalette from './components/NodePalette.jsx'
 import GraphCanvas from './components/GraphCanvas.jsx'
 import Inspector from './components/Inspector.jsx'
 import ConsolePanel from './components/ConsolePanel.jsx'
+import SettingsPopup, { renderConsoleLine } from './components/SettingsPopup.jsx'
 
 const NEW_GRAPH = () => ({ name: 'untitled', kernel_version: '0.1.0-0', nodes: [], wires: [] })
 const randomSeed = () => Math.floor(Math.random() * 2 ** 31)
+const DEFAULT_CONSOLE_FORMAT = '[{time} {name} {node}] {line}'
 
 export default function App() {
   const [graphs, setGraphs] = useState([])
@@ -27,6 +29,15 @@ export default function App() {
   const [sideCollapsed, setSideCollapsed] = useState(false)
   // 随机种子:不需要手动设置,每张图新建/载入时自动随机
   const [seed, setSeed] = useState(randomSeed)
+  // 设置:控制台输出格式模板(设置浮窗编辑,localStorage 持久化)
+  const [consoleFormat, setConsoleFormat] = useState(() => {
+    try {
+      return localStorage.getItem('ge-console-format') || DEFAULT_CONSOLE_FORMAT
+    } catch (_) {
+      return DEFAULT_CONSOLE_FORMAT
+    }
+  })
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   // 节点摆放位置是编辑器侧表现元数据(图资产为内核纯格式),存 localStorage 按图名隔离
   const layoutKey = `ge-layout:${name}`
@@ -58,6 +69,19 @@ export default function App() {
 
   const refreshGraphs = () =>
     api.listGraphs().then((r) => setGraphs(r.graphs)).catch(() => {})
+
+  const onConsoleFormatChange = useCallback((v) => {
+    setConsoleFormat(v)
+    try {
+      localStorage.setItem('ge-console-format', v)
+    } catch (_) {}
+  }, [])
+
+  // 控制台行渲染:条目结构化存储,模板在渲染期应用(改格式即时重渲染全部行)
+  const formatConsoleLine = useCallback(
+    (entry) => renderConsoleLine(entry, consoleFormat),
+    [consoleFormat],
+  )
 
   const flashNotice = useCallback((msg) => {
     setNotice(msg)
@@ -209,6 +233,22 @@ export default function App() {
             onToggleConsole: () => setConsoleVisible((v) => !v),
           }}
         />
+        <button
+          type="button"
+          className={`menu-btn${settingsOpen ? ' menu-btn-open' : ''}`}
+          onClick={() => setSettingsOpen((v) => !v)}
+          title="设置"
+        >
+          ⚙ 设置
+        </button>
+        {settingsOpen && (
+          <SettingsPopup
+            format={consoleFormat}
+            onFormatChange={onConsoleFormatChange}
+            onReset={() => onConsoleFormatChange(DEFAULT_CONSOLE_FORMAT)}
+            onClose={() => setSettingsOpen(false)}
+          />
+        )}
       </header>
 
       {notice && <div className="notice">{notice}</div>}
@@ -261,6 +301,7 @@ export default function App() {
       {consoleVisible ? (
         <ConsolePanel
           lines={run.consoleLines}
+          formatLine={formatConsoleLine}
           problems={run.problems}
           error={run.error}
           tab={consoleTab}
