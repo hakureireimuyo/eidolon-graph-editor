@@ -35,25 +35,6 @@ export default function App() {
   // 运行会话(世界自驱,事件源 = 节点)
   const run = useRunSession(graph, seed)
 
-  // Delete 键删除选中节点(输入框聚焦时不触发;运行中图锁定)
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key !== 'Delete') return
-      const t = e.target
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
-      if (!selected) return
-      if (run.status !== 'idle') {
-        flashNotice('运行中,图已锁定编辑(请先点「结束」)')
-        return
-      }
-      applyOps([{ op: 'remove_node', node_id: selected }]).then((r) => {
-        if (r) setSelected(null)
-      })
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [selected, run.status, applyOps, flashNotice])
-
   useEffect(() => {
     api.listNodeTypes().then((r) => setSpecs(r.node_types)).catch((e) => setNotice(String(e.message)))
     refreshGraphs()
@@ -101,6 +82,26 @@ export default function App() {
     },
     [name, graph, flashNotice, run.status],
   )
+
+  // Delete 键删除选中节点(输入框聚焦时不触发;运行中图锁定)
+  // 注意:声明在 applyOps/flashNotice 之后——deps 数组渲染期求值,前置会 TDZ 崩溃
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'Delete') return
+      const t = e.target
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+      if (!selected) return
+      if (run.status !== 'idle') {
+        flashNotice('运行中,图已锁定编辑(请先点「结束」)')
+        return
+      }
+      applyOps([{ op: 'remove_node', node_id: selected }]).then((r) => {
+        if (r) setSelected(null)
+      })
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selected, run.status, applyOps, flashNotice])
 
   // 拖动中 persist=false:位置实时跟随鼠标(layout 状态连续更新,不写盘);
   // 松开时 persist=true:持久化到 localStorage
