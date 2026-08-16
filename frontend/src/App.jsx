@@ -83,13 +83,17 @@ export default function App() {
     [name, graph, flashNotice, run.status],
   )
 
+  // 拖动中 persist=false:位置实时跟随鼠标(layout 状态连续更新,不写盘);
+  // 松开时 persist=true:持久化到 localStorage
   const onLayout = useCallback(
-    (nodeId, pos) => {
+    (nodeId, pos, persist = true) => {
       setLayout((prev) => {
         const next = { ...prev, [nodeId]: pos }
-        try {
-          localStorage.setItem(layoutKey, JSON.stringify(next))
-        } catch (_) {}
+        if (persist) {
+          try {
+            localStorage.setItem(layoutKey, JSON.stringify(next))
+          } catch (_) {}
+        }
         return next
       })
     },

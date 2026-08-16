@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo } from 'react'
-import ReactFlow, { Background, useReactFlow } from 'reactflow'
+import ReactFlow, { Background, ConnectionMode, useReactFlow } from 'reactflow'
 import 'reactflow/dist/style.css'
 import GraphNode from './GraphNode.jsx'
 
@@ -10,6 +10,17 @@ const nodeTypes = { graph: GraphNode }
 // - 信号槽:信号源(控制输出 / 数据输出的信号端口)→ 控制输入或数据输入信号
 //   (dst_slot='signal';数据输出信号电平由自动传导决定,拉线只是显式路由)
 // - 唯一非法:数据槽 → 信号接收端(连接时拒绝,后端校验器同样把关)
+//
+// 连接手势(connectionMode=loose,方向由 onConnect 自行判定):
+// - 从输出端拖动 = 新建连线;目标输入已有线 → 替换旧线(扇入唯一);
+// - 从已有连线的输入端拖动 = 移动线的下游端(上游输出不变),拖到另一个
+//   输入端上即可;拖到输出端 = 反向新建(等同输出端拖动);
+// - 无连线的输入端拖动到输出端 = 反向新建。
+const portOf = (handleId) => {
+  const [side, slot, name] = (handleId || '').split(':')
+  return { side, slot, name }
+}
+
 export default function GraphCanvas({
   graph, specs, layout, onLayout, selected, onSelect, applyOps, onNotice,
 }) {
@@ -41,33 +52,83 @@ export default function GraphCanvas({
         target: w.dst_node,
         sourceHandle: `out:${w.dst_slot || 'data'}:${w.src_port}`,
         targetHandle: `in:${w.dst_slot || 'data'}:${w.dst_port}`,
-        label: `${w.src_port} → ${w.dst_port}`,
         data: { wire: w },
       })),
     [graph.wires],
   )
 
+  // 拖动中位置实时跟随(layout 状态连续更新,不写盘);松开时持久化
+  const onNodesChange = useCallback(
+    (changes) => {
+      for (const c of changes) {
+        if (c.type === 'position' && c.dragging && c.position) {
+          onLayout(c.id, { x: c.position.x, y: c.position.y }, false)
+        }
+      }
+    },
+    [onLayout],
+  )
+
+  // 连线合法性指示器:输出→输入(数据槽不连信号接收端);输入→输入 = 移动下游端
+  const isValidConn = useCallback((conn) => {
+    const src = portOf(conn.sourceHandle)
+    const dst = portOf(conn.targetHandle)
+    if (src.side === 'in' && dst.side === 'in') return true
+    if (src.side !== 'out' || dst.side !== 'in') return false
+    return !(src.slot === 'data' && dst.slot !== 'data')
+  }, [])
+
   const onConnect = useCallback(
     (conn) => {
-      const [, srcSlot, srcPort] = conn.sourceHandle.split(':')
-      const [, dstSlot, dstPort] = conn.targetHandle.split(':')
-      if (srcSlot === 'data' && dstSlot !== 'data') {
+      const src = portOf(conn.sourceHandle)
+      const dst = portOf(conn.targetHandle)
+
+      // 1) 输入端拖动(两端都是输入):移动已有线的下游端,上游输出不变
+      if (src.side === 'in' && dst.side === 'in') {
+        const moved = graph.wires.find((w) =>
+          w.dst_node === conn.target && w.dst_port === dst.name && (w.dst_slot || 'data') === dst.slot)
+        if (!moved) {
+          onNotice('该输入端口没有连线(从输出端拖动可新建连线)')
+          return
+        }
+        applyOps([
+          { op: 'remove_edge', wire: moved },
+          { op: 'add_edge', wire: {
+            src_node: moved.src_node, src_port: moved.src_port,
+            dst_node: conn.source, dst_port: src.name, dst_slot: src.slot,
+          } },
+        ])
+        return
+      }
+
+      // 2) 常规/反向新建:源输出 → 目标输入(数据槽不能连信号接收端)
+      if (src.side !== 'out' || dst.side !== 'in') {
+        onNotice('连线必须从输出端口到输入端口')
+        return
+      }
+      if (src.slot === 'data' && dst.slot !== 'data') {
         onNotice('数据槽不能连信号接收端(信号线请从信号端口拉出)')
         return
       }
-      // 数据槽 → 数据槽 ⇒ data;信号端口 → 任意信号接收端 ⇒ signal
-      applyOps([
-        {
-          op: 'add_edge',
-          wire: {
-            src_node: conn.source, src_port: srcPort,
-            dst_node: conn.target, dst_port: dstPort,
-            dst_slot: dstSlot,
-          },
-        },
-      ])
+      const wire = {
+        src_node: conn.source, src_port: src.name,
+        dst_node: conn.target, dst_port: dst.name, dst_slot: dst.slot,
+      }
+      // 同一根线已存在:忽略(拖动后落回原位)
+      const dup = graph.wires.find((w) =>
+        w.src_node === wire.src_node && w.src_port === wire.src_port &&
+        w.dst_node === wire.dst_node && w.dst_port === wire.dst_port &&
+        (w.dst_slot || 'data') === wire.dst_slot)
+      if (dup) return
+      // 3) 目标输入已有线 → 替换(移除旧线 + 添加新线,同一批事务)
+      const existing = graph.wires.find((w) =>
+        w.dst_node === wire.dst_node && w.dst_port === wire.dst_port &&
+        (w.dst_slot || 'data') === wire.dst_slot)
+      applyOps(existing
+        ? [{ op: 'remove_edge', wire: existing }, { op: 'add_edge', wire }]
+        : [{ op: 'add_edge', wire }])
     },
-    [applyOps, onNotice],
+    [graph.wires, applyOps, onNotice],
   )
 
   const onDrop = useCallback(
@@ -89,11 +150,17 @@ export default function GraphCanvas({
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
+        connectionMode={ConnectionMode.Loose}
+        isValidConnection={isValidConn}
         onConnect={onConnect}
+        onNodesChange={onNodesChange}
         onNodeClick={(_, n) => onSelect(n.id)}
         onPaneClick={() => onSelect(null)}
-        onNodeDragStop={(_, n) => onLayout(n.id, n.position)}
+        onNodeDragStop={(_, n) => onLayout(n.id, n.position, true)}
         onEdgeClick={(_, e) => applyOps([{ op: 'remove_edge', wire: e.data.wire }])}
+        // 按住标题区拖动实时跟随;端口区域(nodrag)不触发拖动
+        dragHandle=".gnode-title"
+        nodeDragThreshold={0}
         fitView
         proOptions={{ hideAttribution: true }}
       >
