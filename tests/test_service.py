@@ -45,6 +45,20 @@ LOOP = {
 }
 
 
+def test_node_types_payload_includes_doc():
+    """调色板数据源附带节点说明书:内核 doc() 结构化文本随类型资产下发。"""
+    lib, registry = service.builtin_env()
+    payload = service.node_types_payload(lib, registry)
+    by_name = {s["name"]: s for s in payload}
+    assert set(by_name) == set(lib.node_types.keys())
+    for spec in payload:
+        assert "doc" in spec  # 每个节点都带 doc 字段(无说明为默认空文档)
+    pulse = by_name["Pulse"]
+    assert pulse["doc"]["summary"]  # 概要
+    assert pulse["doc"]["sections"][0]["title"]  # 分节
+    assert all(isinstance(l, str) for l in pulse["doc"]["sections"][0]["lines"])
+
+
 def test_validate_graph_dict():
     lib, _ = service.builtin_env()
     assert service.validate_graph_dict(LOOP, lib).ok

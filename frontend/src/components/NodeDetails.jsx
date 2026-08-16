@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 
 // 节点详情视图(控制台「节点」tab):查看选中节点的状态、输入缓冲、信号电平等
 // 运行时数据——点击画布节点后切换到此 tab,世界自驱期间随 WS 快照实时更新。
@@ -61,6 +61,65 @@ function LevelList({ levels, label }) {
           <span key={k} className={`kv level-${v}`}><em>{k}</em>={v}</span>
         ))}
       </div>
+    </section>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// 说明书:内核 doc() 结构化纯文本(空行分段,'- ' 开头渲染为列表项)
+// ---------------------------------------------------------------------------
+
+function DocLines({ lines }) {
+  const blocks = []
+  let buf = []
+  const flush = () => {
+    if (buf.length) blocks.push({ type: 'p', text: buf.join(' ') })
+    buf = []
+  }
+  for (const l of lines || []) {
+    if (l === '') {
+      flush()
+      continue
+    }
+    if (l.startsWith('- ')) {
+      flush()
+      blocks.push({ type: 'li', text: l.slice(2) })
+    } else {
+      buf.push(l)
+    }
+  }
+  flush()
+  return (
+    <>
+      {blocks.map((b, i) =>
+        b.type === 'li'
+          ? <div key={i} className="doc-li">• {b.text}</div>
+          : <p key={i} className="doc-p">{b.text}</p>)}
+    </>
+  )
+}
+
+function DocSection({ spec }) {
+  const [open, setOpen] = useState(true)
+  const doc = spec?.doc
+  if (!doc || (!doc.summary && !(doc.sections || []).length)) return null
+  return (
+    <section className="detail-section doc-section">
+      <h4 className="doc-toggle" onClick={() => setOpen((v) => !v)} title={open ? '收起说明书' : '展开说明书'}>
+        <span className="palette-cat-arrow">{open ? '▾' : '▸'}</span>
+        说明书
+      </h4>
+      {open && (
+        <div className="doc-body">
+          {doc.summary && <p className="doc-summary">{doc.summary}</p>}
+          {(doc.sections || []).map((s, i) => (
+            <div key={i} className="doc-sec">
+              {s.title && <div className="doc-sec-title">{s.title}</div>}
+              <DocLines lines={s.lines} />
+            </div>
+          ))}
+        </div>
+      )}
     </section>
   )
 }
@@ -176,5 +235,10 @@ export default function NodeDetails({ node, spec, snapNode }) {
     )
   }
   const View = views[spec.name] || DefaultNodeDetails
-  return <View node={node} spec={spec} snapNode={snapNode} />
+  return (
+    <div className="node-details">
+      <DocSection spec={spec} />
+      <View node={node} spec={spec} snapNode={snapNode} />
+    </div>
+  )
 }

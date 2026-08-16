@@ -18,7 +18,7 @@ function PaletteItem({ spec, onAdd, locked }) {
         e.dataTransfer.effectAllowed = 'move'
       }}
       onClick={() => onAdd(spec.name)}
-      title={locked ? '运行中,图已锁定编辑' : (spec.description || spec.name)}
+      title={locked ? '运行中,图已锁定编辑' : (spec.doc?.summary || spec.name)}
     >
       <span className="palette-name">
         {spec.name}

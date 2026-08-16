@@ -290,6 +290,16 @@ button.close { padding: 0 8px; }
 }
 .output-lines { margin-top: 6px; }
 
+/* 节点说明书(内核 doc() 结构化纯文本:空行分段、'- ' 列表) */
+.doc-toggle { cursor: pointer; user-select: none; }
+.doc-toggle:hover { color: var(--text); }
+.doc-body { margin-top: 4px; }
+.doc-summary { color: var(--text); font-size: 11px; margin: 2px 0 8px; line-height: 1.5; }
+.doc-sec { margin-bottom: 8px; }
+.doc-sec-title { color: #9db4d6; font-size: 11px; font-weight: 600; margin-bottom: 2px; }
+.doc-p { margin: 2px 0; font-size: 11px; color: var(--dim); line-height: 1.5; }
+.doc-li { margin: 1px 0 1px 10px; font-size: 11px; color: var(--dim); line-height: 1.5; }
+
 /* ---- 控制台(底部面板,VS Code 式:tabs + 拖动上缘调整高度,滚轮滚动) ---- */
 .running-dot { color: var(--ok); margin-left: 6px; }
 .paused-dot { color: var(--control); margin-left: 6px; }

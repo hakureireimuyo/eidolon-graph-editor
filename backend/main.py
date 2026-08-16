@@ -62,8 +62,8 @@ def health() -> dict:
 
 @app.get("/api/node-types")
 def node_types() -> dict:
-    lib, _ = service.builtin_env()
-    return {"node_types": service.node_types_payload(lib)}
+    lib, registry = service.builtin_env()
+    return {"node_types": service.node_types_payload(lib, registry)}
 
 
 @app.get("/api/graphs")

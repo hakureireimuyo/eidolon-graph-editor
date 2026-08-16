@@ -32,9 +32,19 @@ def builtin_env() -> tuple[AssetLibrary, NodeRegistry]:
     return lib, registry
 
 
-def node_types_payload(lib: AssetLibrary) -> list[dict]:
-    """调色板数据源 = 内核节点协议本身(前端不硬编码节点清单)。"""
-    return [serialize.node_type_to_dict(nt) for nt in lib.node_types.values()]
+def node_types_payload(lib: AssetLibrary, registry: NodeRegistry) -> list[dict]:
+    """调色板数据源 = 内核节点协议本身(前端不硬编码节点清单)。
+
+    附带节点说明书:内核 impl.doc() 的结构化纯文本 {summary, sections}
+    (编辑器只做展示对接,文档归属内核节点,随 pin rev 传播)。
+    """
+    payload: list[dict] = []
+    for nt in lib.node_types.values():
+        d = serialize.node_type_to_dict(nt)
+        impl_name = nt.impl.name or nt.name
+        d["doc"] = registry.get(impl_name)().doc() if registry.contains(impl_name) else None
+        payload.append(d)
+    return payload
 
 
 def decode_graph(data: dict) -> Graph:

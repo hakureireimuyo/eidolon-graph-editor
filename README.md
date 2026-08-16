@@ -64,7 +64,7 @@ npm run dev                                            # 前端:http://localhost
 | 端点 | 作用 |
 |------|------|
 | `GET /api/health` | 健康检查 |
-| `GET /api/node-types` | 内置节点类型清单(调色板数据源 = 内核协议) |
+| `GET /api/node-types` | 内置节点类型清单 + 说明书(调色板数据源 = 内核协议;文档 = 内核 `impl.doc()`,随 pin rev 传播) |
 | `GET /api/graphs` | 图资产清单 |
 | `GET /api/graphs/{name}` | 图资产 + 校验报告 |
 | `PUT /api/graphs/{name}` | 保存(不校验,草稿可存;编译检查只在点「运行」时做一次) |
