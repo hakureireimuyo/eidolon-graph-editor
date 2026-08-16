@@ -24,6 +24,11 @@ def _wait_for(predicate, timeout=8.0):
         time.sleep(0.05)
     return False
 
+
+def _console_lines(view):
+    """控制台条目(追加式 dict 列表)→ [(node, line)] 便于断言。"""
+    return [(e["node"], e["line"]) for e in view["console"]]
+
 LOOP = {
     "name": "loop",
     "kernel_version": "0.1.0-0",
@@ -195,7 +200,7 @@ def test_session_feedback_gating():
 
 
 def test_output_node_console():
-    """内核 Output 日志输出节点:Clock 事件逐行累积,console 抽取带节点前缀。"""
+    """内核 Output 日志输出节点:Clock 事件逐行累积,console 追加式收录带节点名/编号。"""
     lib, registry = service.builtin_env()
     graph = {"name": "out", "kernel_version": "0.1.0-0",
              "nodes": [{"node_id": "clock", "type_name": "Clock", "config": {}},
@@ -207,7 +212,39 @@ def test_output_node_console():
     assert _wait_for(lambda: service.session_view(sid) is not None
                      and len(service.session_view(sid)["console"]) >= 3)
     view = service.session_view(sid)
-    assert view["console"][:3] == ["[out] 1", "[out] 2", "[out] 3"]
+    assert _console_lines(view)[:3] == [("out", "1"), ("out", "2"), ("out", "3")]
+    assert view["console"][0]["name"] == "Output"  # 条目带节点名(前端拼前缀)
+    service.stop_session(sid)
+
+
+def test_two_outputs_sync_console():
+    """一个 Clock 连两个 Output:每拍两行同步输出、恰好各一次,无丢行/重复行。
+
+    回归:按节点声明序重建完整控制台再按总行数取增量,靠前节点的新行落在
+    列表中间会被前端增量截断(丢行 + 重复行)——追加式收录修复后,两个
+    输出的行按拍序交替出现。
+    """
+    lib, registry = service.builtin_env()
+    graph = {"name": "out2", "kernel_version": "0.1.0-0",
+             "nodes": [{"node_id": "clock", "type_name": "Clock", "config": {}},
+                       {"node_id": "oa", "type_name": "Output", "config": {}},
+                       {"node_id": "ob", "type_name": "Output", "config": {}}],
+             "wires": [{"src_node": "clock", "src_port": "count", "dst_node": "oa", "dst_port": "msg"},
+                       {"src_node": "clock", "src_port": "count", "dst_node": "ob", "dst_port": "msg"}]}
+    assert service.validate_graph_dict(graph, lib).ok
+    sid = service.start_session(service.decode_graph(graph), lib, registry)
+    assert _wait_for(lambda: service.session_view(sid) is not None
+                     and len(service.session_view(sid)["console"]) >= 6)
+    view = service.session_view(sid)
+    lines = _console_lines(view)
+    # 前六行:每拍 oa/ob 各一行、值相同(扇出同步),拍序交替
+    assert lines[:6] == [("oa", "1"), ("ob", "1"),
+                         ("oa", "2"), ("ob", "2"),
+                         ("oa", "3"), ("ob", "3")]
+    # 无重复无遗漏:每个节点连续行号严格递增且无重复
+    for node in ("oa", "ob"):
+        seq = [int(l) for n, l in lines if n == node]
+        assert seq == list(range(1, len(seq) + 1))
     service.stop_session(sid)
 
 
@@ -240,7 +277,7 @@ def test_random_function_node():
                      and len(service.session_view(sid)["console"]) >= 1)
     # 首次数值 = f(seed=7, num=1, range=10):确定性可复现
     expected = Rng(derive_seed(7, "1")).next_int(10)
-    assert service.session_view(sid)["console"][0] == f"[out] {expected}"
+    assert _console_lines(service.session_view(sid))[0] == ("out", str(expected))
     service.stop_session(sid)
 
 
@@ -260,7 +297,7 @@ def test_random_only_seed_wired():
     assert _wait_for(lambda: service.session_view(sid) is not None
                      and len(service.session_view(sid)["console"]) >= 1)
     expected = Rng(derive_seed(1, "10")).next_int(100)
-    assert service.session_view(sid)["console"][0] == f"[out] {expected}"
+    assert _console_lines(service.session_view(sid))[0] == ("out", str(expected))
     service.stop_session(sid)
 
 
@@ -276,15 +313,15 @@ def test_input_node_inject_propagates():
     sid = service.start_session(service.decode_graph(graph), lib, registry)
     assert service.inject_event(sid, "in1", "in", "你好,世界")
     assert _wait_for(lambda: service.session_view(sid) is not None
-                     and "[out] 你好,世界" in service.session_view(sid)["console"])
+                     and ("out", "你好,世界") in _console_lines(service.session_view(sid)))
     view = service.session_view(sid)
     assert view["snapshot"]["nodes"]["in1"]["state"]["last"] == "你好,世界"
     # 同值重复注入同样产出:手动点击每次都是新事件(内核不做值去重)
     assert service.inject_event(sid, "in1", "in", "你好,世界")
-    assert _wait_for(lambda: service.session_view(sid)["console"].count("[out] 你好,世界") == 2)
+    assert _wait_for(lambda: _console_lines(service.session_view(sid)).count(("out", "你好,世界")) == 2)
     assert service.inject_event(sid, "in1", "in", "第二条")
-    assert _wait_for(lambda: "[out] 第二条" in service.session_view(sid)["console"])
-    assert service.session_view(sid)["console"].count("[out] 你好,世界") == 2
+    assert _wait_for(lambda: ("out", "第二条") in _console_lines(service.session_view(sid)))
+    assert _console_lines(service.session_view(sid)).count(("out", "你好,世界")) == 2
     service.stop_session(sid)
     assert not service.inject_event(sid, "in1", "in", "x")
 

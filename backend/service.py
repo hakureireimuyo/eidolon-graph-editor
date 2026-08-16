@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass, field
 from typing import Any
 
 from eidolon_graph.engine import (AddEdge, AddNode, ChangeImpl, EditOp, Event, NodeRegistry,
@@ -99,7 +100,22 @@ def apply_ops(graph: Graph, ops: list[dict], lib: AssetLibrary) -> tuple[Graph, 
 # ---------------------------------------------------------------------------
 
 MAX_SESSIONS = 8
-_sessions: dict[str, World] = {}
+
+
+@dataclass
+class Session:
+    """一次运行会话:世界 + 追加式控制台(每节点已收录行数 → 只追加新增行)。
+
+    控制台必须是**追加式**的:按节点声明序重建完整列表再按总行数取增量,
+    声明序靠前节点的新行会落在列表中间,前端增量被截断 → 丢行/重复行。
+    """
+
+    world: World
+    console: list[dict] = field(default_factory=list)   # {"node": id, "name": 类型名, "line": 文本}
+    seen: dict[str, int] = field(default_factory=dict)  # 节点 id → 已收录行数
+
+
+_sessions: dict[str, Session] = {}
 
 
 def start_session(graph: Graph, lib: AssetLibrary, registry: NodeRegistry,
@@ -112,9 +128,10 @@ def start_session(graph: Graph, lib: AssetLibrary, registry: NodeRegistry,
     sid = uuid.uuid4().hex[:12]
     world = World(lib, graph, registry, seed=seed, realtime=True)
     world.start()
-    _sessions[sid] = world
-    if len(_sessions) > MAX_SESSIONS:  # 淘汰最旧会话
-        _sessions.pop(next(iter(_sessions)))
+    _sessions[sid] = Session(world)
+    if len(_sessions) > MAX_SESSIONS:  # 淘汰最旧会话(同时停止其世界自驱线程)
+        old = _sessions.pop(next(iter(_sessions)))
+        old.world.stop()
     return sid
 
 
@@ -123,20 +140,33 @@ def session_alive(sid: str) -> bool:
 
 
 def session_view(sid: str) -> dict | None:
-    """会话只读视图(世界自驱,宿主不推进):最新快照 + 控制台 + 日志。"""
-    world = _sessions.get(sid)
-    if world is None:
+    """会话只读视图(世界自驱,宿主不推进):最新快照 + 控制台 + 日志。
+
+    控制台条目为追加式收录(每次调用把各 Output 节点新增的行按声明序
+    追加到会话列表尾部,跨 run 天然保持时间先后),前端按总条数取增量即可。
+    """
+    sess = _sessions.get(sid)
+    if sess is None:
         return None
+    world = sess.world
     snap = world.snapshot().to_dict()
+    for ni in world.graph.nodes:
+        if ni.type_name != OUTPUT.name:
+            continue
+        lines = (snap["nodes"].get(ni.node_id) or {}).get("state", {}).get("lines", [])
+        seen = sess.seen.get(ni.node_id, 0)
+        for line in lines[seen:]:
+            sess.console.append({"node": ni.node_id, "name": ni.type_name, "line": line})
+        sess.seen[ni.node_id] = len(lines)
     return {"run_no": world.run_no, "snapshot": snap,
-            "console": collect_console(world, snap), "log": list(world.log)}
+            "console": list(sess.console), "log": list(world.log)}
 
 
 def stop_session(sid: str) -> bool:
     """结束会话:停止世界自驱,销毁。"""
-    world = _sessions.pop(sid, None)
-    if world is not None:
-        world.stop()
+    sess = _sessions.pop(sid, None)
+    if sess is not None:
+        sess.world.stop()
         return True
     return False
 
@@ -144,41 +174,26 @@ def stop_session(sid: str) -> bool:
 def inject_event(sid: str, node: str, port: str, value: Any) -> bool:
     """注入宿主事件(Input 节点的手动触发):事件驱动不在乎事件从哪来——
     注入数据事件与节点产出数据向后传播完全同构。暂停期间亦可用。"""
-    world = _sessions.get(sid)
-    if world is None:
+    sess = _sessions.get(sid)
+    if sess is None:
         return False
-    world.run([Event(node, port, value)])
+    sess.world.run([Event(node, port, value)])
     return True
 
 
 def pause_session(sid: str) -> bool:
     """暂停:世界冻结(状态/信号/RNG 保留),暂停时长不计入发射周期。"""
-    world = _sessions.get(sid)
-    if world is None:
+    sess = _sessions.get(sid)
+    if sess is None:
         return False
-    world.pause()
+    sess.world.pause()
     return True
 
 
 def resume_session(sid: str) -> bool:
     """恢复:发射时刻顺延暂停时长后继续自驱。"""
-    world = _sessions.get(sid)
-    if world is None:
+    sess = _sessions.get(sid)
+    if sess is None:
         return False
-    world.resume()
+    sess.world.resume()
     return True
-
-
-def collect_console(world: World, snap: dict) -> list[str]:
-    """控制台行 = 所有 Output 节点(内核日志输出节点)的累积输出。
-
-    节点在内核实现语义,编辑器只做展示对接:读其状态 lines 喂前端控制台。
-    """
-    lines: list[str] = []
-    for ni in world.graph.nodes:
-        if ni.type_name != OUTPUT.name:
-            continue
-        ns = snap["nodes"].get(ni.node_id)
-        for line in (ns or {}).get("state", {}).get("lines", []):
-            lines.append(f"[{ni.node_id}] {line}")
-    return lines

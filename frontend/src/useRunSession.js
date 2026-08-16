@@ -17,10 +17,15 @@ export default function useRunSession(graph, seed) {
 
   const applyView = useCallback((v) => {
     setSnap(v.snapshot)
-    // console / log 均为累积表:只追加增量
+    // console / log 均为追加式累积表(后端只追加、前端只取尾部增量):
+    // console 条目 = {node, name, line},显示前缀 = [时间 节点名 节点编号]
     const seen = seenRef.current
     const fresh = []
-    for (let i = seen.console; i < (v.console || []).length; i++) fresh.push(v.console[i])
+    for (let i = seen.console; i < (v.console || []).length; i++) {
+      const e = v.console[i]
+      const t = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+      fresh.push(`[${t} ${e.name} ${e.node}] ${e.line}`)
+    }
     for (let i = seen.log; i < (v.log || []).length; i++) {
       const e = v.log[i]
       fresh.push(`r${e.run} [${e.node || '-'}] ${e.level}: ${e.message}`)
