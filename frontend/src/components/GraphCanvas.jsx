@@ -1,9 +1,35 @@
 import React, { useCallback, useMemo } from 'react'
-import ReactFlow, { Background, ConnectionMode, useReactFlow } from 'reactflow'
+import ReactFlow, { BaseEdge, ConnectionMode, getBezierPath, useReactFlow } from 'reactflow'
 import 'reactflow/dist/style.css'
 import GraphNode from './GraphNode.jsx'
 
 const nodeTypes = { graph: GraphNode }
+
+// 连到触发端口(事件端口)的边:数据端口蓝 → 触发端口黄 的渐变,一眼看出
+// "这条线驱动一次事件"。渐变 id 按边 id 唯一,defs 随边进入 React Flow 的
+// SVG 层(同一 svg 文档内引用生效)。
+const TRIGGER_SRC = '#7fb0f7'   // 数据输出端口色(--data)
+const TRIGGER_DST = '#eab308'   // 触发端口色(--trigger)
+function TriggerGradientEdge({ id, sourceX, sourceY, targetX, targetY,
+  sourcePosition, targetPosition, markerEnd }) {
+  const [path] = getBezierPath({ sourceX, sourceY, targetX, targetY,
+    sourcePosition, targetPosition })
+  const gradId = `trig-grad-${id}`
+  return (
+    <>
+      <defs>
+        <linearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor={TRIGGER_SRC} />
+          <stop offset="100%" stopColor={TRIGGER_DST} />
+        </linearGradient>
+      </defs>
+      <BaseEdge id={id} path={path} markerEnd={markerEnd}
+        style={{ stroke: `url(#${gradId})`, strokeWidth: 2 }} />
+    </>
+  )
+}
+
+const edgeTypes = { triggerGrad: TriggerGradientEdge }
 
 // 连线槽位模型:句柄 id = `{in|out}:{slot}:{端口名}`,slot ∈ {data, signal}
 // - 数据槽:数据输出 → 数据输入(dst_slot='data')
@@ -22,7 +48,7 @@ const portOf = (handleId) => {
 }
 
 export default function GraphCanvas({
-  graph, specs, layout, snap, onLayout, selected, onSelect, applyOps, onNotice,
+  graph, specs, layout, snap, onLayout, selected, onSelect, applyOps, onNotice, background,
 }) {
   const { screenToFlowPosition } = useReactFlow()
   const specOf = useMemo(() => {
@@ -112,9 +138,16 @@ export default function GraphCanvas({
           if (lvl === 'active') edge.style = { stroke: '#4f9e6f' }
           else if (lvl === 'inactive') edge.style = { stroke: '#b5655e' }
         }
+        // 数据线连到触发端口:渐变边(数据蓝 → 触发黄)
+        if (slot === 'data') {
+          const dstSpec = specOf[graph.nodes.find((n) => n.node_id === w.dst_node)?.type_name]
+          if (dstSpec && (dstSpec.data_in || []).some((p) => p.name === w.dst_port && p.trigger)) {
+            edge.type = 'triggerGrad'
+          }
+        }
         return edge
       }),
-    [graph.wires, signalLevels],
+    [graph.wires, graph.nodes, specOf, signalLevels],
   )
 
   // 拖动中位置实时跟随:layout 状态连续更新(保存时随工程落盘)
@@ -205,11 +238,14 @@ export default function GraphCanvas({
   )
 
   return (
-    <main className="canvas" onDrop={onDrop} onDragOver={(e) => e.preventDefault()}>
+    // 画布背景 = CSS 静态背景(不随画布平移/缩放,样式由设置面板选择):
+    // dots 原点矩阵 / lines 网格线,尺寸颜色在 styles.css .canvas-bg-* 控制
+    <main className={`canvas canvas-bg-${background || 'dots'}`} onDrop={onDrop} onDragOver={(e) => e.preventDefault()}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         connectionMode={ConnectionMode.Loose}
         isValidConnection={isValidConn}
         onConnect={onConnect}
@@ -226,9 +262,7 @@ export default function GraphCanvas({
         deleteKeyCode={null}
         fitView
         proOptions={{ hideAttribution: true }}
-      >
-        <Background gap={16} color="#2a2f3a" />
-      </ReactFlow>
+      />
     </main>
   )
 }

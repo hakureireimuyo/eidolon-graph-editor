@@ -16,11 +16,13 @@ const LEVEL_LABEL = { active: '高', inactive: '低' }
 export default function Inspector({ node, spec, applyOps, onClose, onInject, onCollapse }) {
   const [cfg, setCfg] = useState({})
   const [inputValue, setInputValue] = useState('')
+  const [trigVals, setTrigVals] = useState({})  // 触发端口 → 输入文本(每端口独立)
   const [injecting, setInjecting] = useState(false)
   // 切换选中节点时重置各自编辑态:每个节点的输入栏/配置互不串联
   useEffect(() => {
     setCfg(node ? { ...node.config } : {})
     setInputValue('')
+    setTrigVals({})
   }, [node?.node_id]) // eslint-disable-line
 
   // Input 宿主节点:手动触发事件(注入新值 → 输出事件向后传播)
@@ -33,11 +35,24 @@ export default function Inspector({ node, spec, applyOps, onClose, onInject, onC
       setInjecting(false)
     }
   }
+  // 触发端口(事件端口)泛化注入栏:任何节点声明了 trigger 的端口都可手动触发
+  const triggerPorts = (spec?.data_in || []).filter((p) => p.trigger)
+  const doTrigger = async (port) => {
+    const raw = (trigVals[port] || '').trim()
+    const value = raw === '' ? true : parseValue(raw)  // 空载荷 → true;输入按 JSON 解析
+    setInjecting(true)
+    try {
+      await onInject(node.node_id, port, value)
+    } finally {
+      setInjecting(false)
+    }
+  }
 
-  // 右侧面板 = 节点的编辑器/查看器(游戏引擎对象编辑面板):收起/展开在面板头
+  // 右侧面板 = 节点的属性编辑面板(游戏引擎对象编辑面板;说明书在下方「节点」窗口):
+  // 收起/展开在面板头
   const head = (
     <div className="panel-head">
-      <h3>{node ? (spec ? spec.name : node.type_name) : '节点'}</h3>
+      <h3>{node ? `节点属性 · ${spec ? spec.name : node.type_name}` : '节点属性'}</h3>
       <div className="panel-head-btns">
         {node && <button className="close" onClick={onClose} title="取消选中">✕</button>}
         <button className="close" onClick={onCollapse} title="收起面板">▶</button>
@@ -49,7 +64,7 @@ export default function Inspector({ node, spec, applyOps, onClose, onInject, onC
     return (
       <aside className="panel inspector">
         {head}
-        <p className="dim">未选中节点(点击画布节点)</p>
+        <p className="dim">未选中节点(点击画布节点查看/编辑其属性)</p>
       </aside>
     )
   }
@@ -126,6 +141,31 @@ export default function Inspector({ node, spec, applyOps, onClose, onInject, onC
         </>
       )}
 
+      {triggerPorts.length > 0 && (
+        <>
+          <h4>触发注入(事件端口)</h4>
+          {triggerPorts.map((p) => (
+            <div key={p.name} className="config-form">
+              <label className="config-field">
+                <span className="config-name port-trigger">{p.name}</span>
+                <input
+                  value={trigVals[p.name] ?? ''}
+                  placeholder="载荷(可选,JSON 值)"
+                  onChange={(e) => setTrigVals({ ...trigVals, [p.name]: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') doTrigger(p.name)
+                  }}
+                />
+              </label>
+              <button className="primary" onClick={() => doTrigger(p.name)} disabled={injecting}>
+                {injecting ? '触发中…' : '触发'}
+              </button>
+            </div>
+          ))}
+          <p className="hint">产生一次事件:到达即触发组,载荷可用可忽略;空载荷注入 true,输入值按 JSON 解析(123 / true / "文本")</p>
+        </>
+      )}
+
       {isInputNode && (
         <>
           <h4>手动输入(触发事件)</h4>
@@ -150,7 +190,7 @@ export default function Inspector({ node, spec, applyOps, onClose, onInject, onC
 
       {fields.length > 0 && (
         <>
-          <h4>配置(编辑期)</h4>
+          <h4>配置(编辑期,输入即应用)</h4>
           <div className="config-form">
             {fields.map((f) => (
               <label key={f.name} className="config-field">
@@ -158,21 +198,18 @@ export default function Inspector({ node, spec, applyOps, onClose, onInject, onC
                 <input
                   value={cfg[f.name] === undefined || cfg[f.name] === null ? '' : String(cfg[f.name])}
                   placeholder={f.default === null ? 'null' : String(f.default)}
-                  onChange={(e) => setCfg({ ...cfg, [f.name]: e.target.value })}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    setCfg((c) => ({ ...c, [f.name]: v }))
+                    // 即时应用:set_config 增量合并,只提交本字段(无需点「应用」)
+                    applyOps([{ op: 'set_config', node_id: node.node_id,
+                               config: { [f.name]: parseValue(v) } }])
+                  }}
                 />
               </label>
             ))}
-            <button
-              className="primary"
-              onClick={() => {
-                const parsed = {}
-                for (const f of fields) parsed[f.name] = parseValue(cfg[f.name] ?? '')
-                applyOps([{ op: 'set_config', node_id: node.node_id, config: parsed }])
-              }}
-            >
-              应用配置
-            </button>
           </div>
+          <p className="hint">修改即时生效(JSON 解析:数字/布尔/字符串/null);清空输入 = 设为空值</p>
         </>
       )}
       {((spec.state || []).length > 0) && (

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ReactFlowProvider } from 'reactflow'
 import { api } from './api.js'
 import useRunSession from './useRunSession.js'
@@ -29,6 +29,34 @@ export default function App() {
   // 左右面板收起展开:节点面板可向左侧收起,右侧节点编辑器同理
   const [paletteCollapsed, setPaletteCollapsed] = useState(false)
   const [sideCollapsed, setSideCollapsed] = useState(false)
+  // 右侧节点属性面板宽度:左缘拖拽调整,localStorage 持久化
+  const [sideWidth, setSideWidth] = useState(() => {
+    try { return Number(localStorage.getItem('ge-side-width')) || 340 } catch { return 340 }
+  })
+  const sideDragRef = useRef(null)
+
+  useEffect(() => {
+    const move = (e) => {
+      const d = sideDragRef.current
+      if (!d) return
+      // 向左拖 = 变宽,向右拖 = 变窄(推动面板边缘的方向感)
+      setSideWidth(Math.max(240, Math.min(620, d.startW - (e.clientX - d.startX))))
+    }
+    const up = () => {
+      sideDragRef.current = null
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+    return () => {
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+    }
+  }, [])
+  useEffect(() => {
+    try { localStorage.setItem('ge-side-width', String(sideWidth)) } catch (_) {}
+  }, [sideWidth])
   // 随机种子:不需要手动设置,每张图新建/载入时自动随机
   const [seed, setSeed] = useState(randomSeed)
   // 设置:控制台输出格式模板(设置浮窗编辑,localStorage 持久化)
@@ -40,6 +68,14 @@ export default function App() {
     }
   })
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // 画布背景样式:设置面板选择,localStorage 持久化
+  const [background, setBackground] = useState(() => {
+    try { return localStorage.getItem('ge-background') || 'dots' } catch { return 'dots' }
+  })
+  const onBackgroundChange = useCallback((v) => {
+    setBackground(v)
+    try { localStorage.setItem('ge-background', v) } catch (_) {}
+  }, [])
 
   // 节点摆放位置是编辑器侧表现元数据,随工程保存(editor_state.positions);
   // 不再存 localStorage 按图名隔离——旧方案改名/新建即丢失,坐标无家可归
@@ -233,6 +269,8 @@ export default function App() {
             format={consoleFormat}
             onFormatChange={onConsoleFormatChange}
             onReset={() => onConsoleFormatChange(DEFAULT_CONSOLE_FORMAT)}
+            background={background}
+            onBackgroundChange={onBackgroundChange}
             onClose={() => setSettingsOpen(false)}
           />
         )}
@@ -264,23 +302,35 @@ export default function App() {
             onSelect={handleSelect}
             applyOps={applyOps}
             onNotice={flashNotice}
+            background={background}
           />
         </ReactFlowProvider>
-        <div className={`side${sideCollapsed ? ' side-collapsed' : ''}`}>
+        <div className={`side${sideCollapsed ? ' side-collapsed' : ''}`} style={sideCollapsed ? undefined : { width: sideWidth }}>
           {sideCollapsed ? (
             <>
               <button type="button" className="side-toggle" onClick={() => setSideCollapsed(false)} title="展开节点编辑器">◀</button>
               <span className="side-toggle-label">节点</span>
             </>
           ) : (
-            <Inspector
-              node={selectedNode}
-              spec={selectedSpec}
-              applyOps={applyOps}
-              onClose={() => setSelected(null)}
-              onInject={handleInject}
-              onCollapse={() => setSideCollapsed(true)}
-            />
+            <>
+              <div
+                className="side-resizer"
+                onMouseDown={(e) => {
+                  sideDragRef.current = { startX: e.clientX, startW: sideWidth }
+                  document.body.style.cursor = 'col-resize'
+                  document.body.style.userSelect = 'none'
+                }}
+                title="拖动调整面板宽度"
+              />
+              <Inspector
+                node={selectedNode}
+                spec={selectedSpec}
+                applyOps={applyOps}
+                onClose={() => setSelected(null)}
+                onInject={handleInject}
+                onCollapse={() => setSideCollapsed(true)}
+              />
+            </>
           )}
         </div>
       </div>
@@ -292,7 +342,6 @@ export default function App() {
           problems={run.problems}
           error={run.error}
           tab={consoleTab}
-          onTabChange={setConsoleTab}
           node={selectedNode}
           spec={selectedSpec}
           snapNode={selectedSnapNode}

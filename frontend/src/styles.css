@@ -142,6 +142,19 @@ button.danger { background: #6b1f24; border-color: #a33; }
 
 /* 画布 */
 .canvas { flex: 1; min-width: 0; }
+/* 静态背景(不随画布平移):原点矩阵(圆点大而清晰)/ 网格线(间距放宽) */
+.canvas-bg-dots {
+  background-color: var(--panel);
+  background-image: radial-gradient(circle, #3a4150 2px, transparent 2px);
+  background-size: 28px 28px;
+}
+.canvas-bg-lines {
+  background-color: var(--panel);
+  background-image:
+    linear-gradient(#2f3642 1px, transparent 1px),
+    linear-gradient(90deg, #2f3642 1px, transparent 1px);
+  background-size: 28px 28px;
+}
 
 /* 节点 */
 .gnode {
@@ -161,42 +174,55 @@ button.danger { background: #6b1f24; border-color: #a33; }
 .gnode-badge { border-radius: 3px; padding: 0 4px; font-size: 9px; font-weight: 400; }
 .gnode-badge-auto { background: #1d3355; color: #7fb0f7; }
 .gnode-badge-signal { background: #4a3413; color: #fbbf24; }
-.gnode-body { display: flex; padding: 4px 0; }
-.gnode-column { flex: 1; min-width: 0; }
-.gnode-column.right { text-align: right; }
+.gnode-body {
+  display: flex; flex-direction: column; gap: 4px; padding: 4px;
+}
 .gnode-unknown { color: var(--danger); }
 .gnode-unknown-note { padding: 6px 10px; font-size: 11px; }
 
+/* ---- 输入组矩阵容器(组 = 节点内部布局的一等公民):数学矩阵符号 ---- */
+.port-group {
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--panel-2);
+}
+.port-group-stray { border-style: dashed; background: transparent; }  /* 组外端口区(控制/源输出) */
+/* 两列矩阵:输入 | 输出,grid 行对齐(输出与触发它的输入同行) */
+.port-group-matrix { display: grid; grid-template-columns: 1fr 1fr; }
+.port-cell-empty { min-height: 40px; }  /* 空行占位,维持行对齐 */
+
+/* 端口行:行高 40px——同端口信号/数据句柄配对近距离(±6px),
+   不同端口行距拉开(行间净距 22px),端口独立清晰 */
 .port-row {
-  position: relative; display: flex; align-items: center;
+  position: relative; min-height: 40px;
+  display: flex; align-items: center;
   padding: 2px 10px; font-size: 11px;
 }
-.gnode-column.right .port-row { justify-content: flex-end; }
+.port-group-matrix .port-row:nth-child(even) { justify-content: flex-end; }  /* 右列(输出)行右对齐 */
 .port-label { white-space: nowrap; }
 .port-semantic { color: var(--control); font-style: normal; font-size: 10px; margin-left: 4px; }
 .port-bound { color: var(--ok); font-style: normal; font-size: 10px; margin-left: 4px; }
+.port-trigger { color: #eab308; font-style: normal; font-size: 10px; margin-left: 4px; } /* 触发/事件端口:黄色 */
 
 /* 端口句柄:数据槽蓝(实心)/ 信号槽橙(空心,运行中按电平着色) */
 .handle { width: 9px; height: 9px; border: 1px solid #000; }
 .handle-data { background: var(--data); }
-.handle-signal { background: var(--panel); border-color: var(--control); }
-.handle-signal.lvl-active { background: var(--ok); border-color: #15803d; }
+.handle-trigger { background: #eab308; border-color: #ca8a04; } /* 触发端口句柄:黄色(与渐变末端一致) */
+/* 信号句柄默认 = 绿实心(与默认启动 active 对应);运行中电平 inactive → 红 */
+.handle-signal { background: var(--ok); border-color: #15803d; }
 .handle-signal.lvl-inactive { background: var(--danger); border-color: #b91c1c; }
 
-/* 端口车道:信号句柄统一上车道(控制信号只负责激活数据端口,不触发执行),
-   数据句柄统一下车道;数据端口对之间虚线表示成对绑定关系 */
-.port-row { min-height: 30px; }
-.port-row .handle-signal { transform: translate(0, calc(-50% - 9px)) !important; }
-.port-row .handle-data { transform: translate(0, calc(-50% + 9px)) !important; }
-.port-bind {
-  position: absolute; top: 50%; transform: translateY(-50%);
-  height: 18px; border-left: 1px dashed var(--control); opacity: 0.75;
-}
-.gnode-column .port-row .port-bind { left: 4px; }
-.gnode-column.right .port-row .port-bind { right: 4px; }
+/* Handle 定位(关键,禁止覆盖 React Flow 的 transform):
+   每个句柄包一个 0×0 绝对定位点 .port-handle-wrap,wrapper 原点 = 句柄中心;
+   Handle 在 wrapper 内沿用 React Flow 默认几何(left:0/top:50%/translate(-50%,-50%))
+   自动居中于 wrapper 原点。信号在上(行中心-6px)、数据在下(行中心+6px)。 */
+.port-handle-wrap { position: absolute; width: 0; height: 0; z-index: 2; }
+.port-handle-wrap.in { left: 0; }
+.port-handle-wrap.out { right: 0; }
+.port-handle-wrap.signal { top: calc(50% - 6px); }
+.port-handle-wrap.data { top: calc(50% + 6px); }
 
-/* React Flow 边 */
-.react-flow__edge-path { stroke: #4b5568; }
+/* React Flow 边:粗细统一 2px;普通数据边鲜亮蓝(与触发渐变边的粗细一致) */
+.react-flow__edge-path { stroke: #7fb0f7; stroke-width: 2px; }
 .react-flow__edge.selected .react-flow__edge-path { stroke: var(--data); }
 .react-flow__edge-text {
   fill: var(--dim); font-size: 9px;
@@ -207,10 +233,17 @@ button.danger { background: #6b1f24; border-color: #a33; }
 
 /* ---- 右侧面板(节点的编辑器/查看器,游戏引擎对象编辑面板) ---- */
 .side {
+  position: relative;
   width: 340px; flex-shrink: 0; display: flex; flex-direction: column;
   background: var(--panel); border-left: 1px solid var(--border);
   overflow-y: auto;
 }
+/* 宽度拖拽手柄(面板左缘) */
+.side-resizer {
+  position: absolute; left: -3px; top: 0; bottom: 0; width: 6px;
+  cursor: col-resize; z-index: 10;
+}
+.side-resizer:hover { background: var(--control); opacity: 0.5; }
 .side-collapsed {
   width: 30px; align-items: center; gap: 8px; overflow: hidden;
   padding: 6px 0;
@@ -311,20 +344,47 @@ button.close { padding: 0 8px; }
 .popup-hint { color: var(--dim); font-size: 10px; }
 .popup-head .close { margin-left: auto; padding: 0 6px; }
 
-/* 设置浮窗(顶栏「⚙ 设置」按钮弹出) */
+/* 设置面板(顶栏「⚙ 设置」按钮弹出):居中弹窗,左侧选项列表 + 右侧内容 */
 .menu-btn-open { background: var(--panel-2); border-color: var(--border); }
-.settings-popup {
-  position: fixed; top: 46px; right: 12px; z-index: 300; width: 320px;
-  background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
-  padding: 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-  display: flex; flex-direction: column; gap: 8px;
+.settings-modal-overlay {
+  position: fixed; inset: 0; z-index: 500;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex; align-items: center; justify-content: center;
 }
-.settings-popup .config-field input {
+.settings-modal {
+  width: 580px; max-height: 72vh;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+}
+.settings-modal-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 14px; border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
+}
+.settings-modal-head h3 { margin: 0; font-size: 13px; }
+.settings-modal-body { display: flex; min-height: 300px; }
+.settings-nav {
+  width: 140px; flex-shrink: 0; border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; padding: 6px 0;
+}
+.settings-nav button {
+  text-align: left; padding: 8px 14px; font-size: 12px;
+  background: none; border: none; border-left: 2px solid transparent;
+  color: var(--dim); cursor: pointer;
+}
+.settings-nav button:hover { color: var(--text); background: var(--panel-2); }
+.settings-nav button.active {
+  color: var(--text); background: #12141a; border-left-color: var(--data);
+}
+.settings-content { flex: 1; min-width: 0; padding: 12px 14px; overflow-y: auto; }
+.settings-content .config-field input {
   background: var(--panel); color: var(--text);
   border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px;
   font-family: Consolas, 'Courier New', monospace; font-size: 12px;
 }
-.settings-tokens { display: flex; flex-direction: column; gap: 2px; }
+.settings-radio { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.settings-tokens { display: flex; flex-direction: column; gap: 2px; margin: 8px 0; }
 .token-item { color: var(--dim); font-size: 11px; }
 .token-item code { color: #7fb0f7; font-size: 11px; }
 .settings-preview {
@@ -372,6 +432,15 @@ button.close { padding: 0 8px; }
   border-top: 1px solid var(--border); padding: 3px 10px;
   display: flex; justify-content: flex-end;
 }
+/* 多窗口并列:三窗口水平分列,列间分割条拖拽调宽 */
+.console-columns { flex: 1; min-height: 0; display: flex; }
+.console-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.col-resizer {
+  flex: 0 0 5px; cursor: col-resize; background: var(--panel);
+  border-left: 1px solid var(--border); margin: 0 -2px; z-index: 5;
+}
+.col-resizer:hover { background: var(--control); opacity: 0.6; }
+
 .console-lines {
   flex: 1; min-height: 40px; overflow-y: auto;
   background: #12141a; border: 1px solid var(--border); border-radius: 4px;
