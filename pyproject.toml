@@ -25,5 +25,5 @@ dev = ["pytest"]
 packages = ["backend"]
 
 [tool.uv.sources]
-eidolon-graph = { git = "ssh://git@github.com/hakureireimuyo/eidolon-graph.git", rev = "bc53ae892dd6d1f8381406e1bf6cebe8fec3596f" }
+eidolon-graph = { git = "ssh://git@github.com/hakureireimuyo/eidolon-graph.git", rev = "5e163c0263d77add1c8a716a246d44e5076fce78" }
 eidolon-graph-project = { git = "ssh://git@github.com/hakureireimuyo/eidolon-graph-project.git", rev = "347a8c774f1db1785f2ac90d961f4d29df65eaf5" }
