@@ -93,3 +93,50 @@ def delete_project(name: str) -> None:
     d = project_dir(name)
     if d.is_dir():
         shutil.rmtree(d)
+
+
+# ---------------------------------------------------------------------------
+# 脚本节点存储(1.2:自定义可编程节点,一节点一 JSON 文件)
+# ---------------------------------------------------------------------------
+
+_SCRIPTS_DIR_NAME = "scripts"
+
+
+def scripts_dir() -> Path:
+    d = DATA_ROOT / _SCRIPTS_DIR_NAME
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def script_path(type_name: str) -> Path:
+    return scripts_dir() / f"{_safe(type_name)}.json"
+
+
+def list_scripts() -> list[dict]:
+    """已保存的脚本节点清单:[{type_name, source}]。坏文件跳过。"""
+    result: list[dict] = []
+    for p in sorted(scripts_dir().glob("*.json")):
+        try:
+            d = json.loads(p.read_text(encoding="utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            continue  # 坏文件:跳过(保存时已校验,此处防御)
+        if isinstance(d, dict) and d.get("type_name") and isinstance(d.get("source"), str):
+            result.append({"type_name": d["type_name"], "source": d["source"]})
+    return result
+
+
+def save_script(type_name: str, source: str) -> None:
+    """保存脚本节点(校验由调用方/端点负责;原子写:temp + replace)。"""
+    path = script_path(type_name)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps({"type_name": type_name, "source": source},
+                              ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+def delete_script(type_name: str) -> bool:
+    path = script_path(type_name)
+    if path.is_file():
+        path.unlink()
+        return True
+    return False

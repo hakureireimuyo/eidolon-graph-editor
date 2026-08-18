@@ -19,6 +19,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from eidolon_graph.engine.script import ScriptError
 from eidolon_graph.model import Graph, ValidationError, serialize
 
 # 兼容两种启动方式:`uvicorn backend.main:app`(仓库根)与
@@ -56,6 +57,10 @@ class PreviewStartBody(BaseModel):
     seed: int = 0
 
 
+class ScriptBody(BaseModel):
+    source: str
+
+
 @app.get("/api/health")
 def health() -> dict:
     return {"ok": True, "service": "eidolon-graph-editor"}
@@ -65,6 +70,29 @@ def health() -> dict:
 def node_types() -> dict:
     lib, registry = service.builtin_env()
     return {"node_types": service.node_types_payload(lib, registry)}
+
+
+@app.get("/api/scripts")
+def list_scripts() -> dict:
+    """已保存的脚本节点清单(脚本正文;调色板经 node-types 自动可见)。"""
+    return {"scripts": workspace.list_scripts()}
+
+
+@app.put("/api/scripts/{name}")
+def save_script(name: str, body: ScriptBody) -> dict:
+    """保存脚本节点:编译校验通过才落盘(失败 400,带错误信息)。"""
+    try:
+        service.save_script_node(name, body.source)
+    except ScriptError as e:
+        raise HTTPException(400, str(e))
+    return {"name": name}
+
+
+@app.delete("/api/scripts/{name}")
+def delete_script(name: str) -> dict:
+    if not service.delete_script_node(name):
+        raise HTTPException(404, f"脚本节点 '{name}' 不存在")
+    return {"name": name}
 
 
 @app.get("/api/graphs")

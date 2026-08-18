@@ -21,16 +21,49 @@ from typing import Any
 from eidolon_graph.engine import (AddEdge, AddNode, ChangeImpl, EditOp, Event, NodeRegistry,
                                   RemoveEdge, RemoveNode, SetConfig, World, apply_edits)
 from eidolon_graph.engine.builtins import OUTPUT, register_builtins
+from eidolon_graph.engine.script import ScriptError, compile_script
 from eidolon_graph.model import (AssetLibrary, Graph, NodeInstance, ValidationError,
                                  ValidationReport, Wire, serialize, validate)
 
+# 兼容两种启动方式:`uvicorn backend.main:app`(仓库根)与
+# `cd backend && uvicorn main:app`(scripts/start.sh 的开发期方式)。
+try:
+    from . import workspace
+except ImportError:  # pragma: no cover
+    import workspace
+
 
 def builtin_env() -> tuple[AssetLibrary, NodeRegistry]:
-    """内置环境:内核节点库的类型资产 + 代码实现(每次请求新建,构造极廉价)。"""
+    """内置环境:内核节点库的类型资产 + 代码实现(每次请求新建,构造极廉价)。
+
+    已保存的脚本节点(workspace/scripts/)一并注册——脚本节点经编译进入
+    资产库,调色板/校验/预览与内置节点同构。
+    """
     lib = AssetLibrary()
     registry = NodeRegistry()
     register_builtins(lib, registry)
+    for d in workspace.list_scripts():
+        try:
+            nt, _ = compile_script(d["source"], d["type_name"])
+        except ScriptError:
+            continue  # 坏脚本:跳过注册(保存时已校验,此处防御)
+        if nt.name not in lib.node_types:
+            lib.add_node_type(nt)
     return lib, registry
+
+
+def save_script_node(type_name: str, source: str) -> None:
+    """保存脚本节点:编译校验 + 内置重名检查(失败抛 ScriptError → 端点 400),再落盘。"""
+    compile_script(source, type_name)
+    lib = AssetLibrary()
+    register_builtins(lib, NodeRegistry())
+    if type_name in lib.node_types:
+        raise ScriptError(f"脚本节点 '{type_name}' 与内置节点重名,请换一个类型名")
+    workspace.save_script(type_name, source)
+
+
+def delete_script_node(type_name: str) -> bool:
+    return workspace.delete_script(type_name)
 
 
 def node_types_payload(lib: AssetLibrary, registry: NodeRegistry) -> list[dict]:

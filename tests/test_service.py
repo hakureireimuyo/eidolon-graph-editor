@@ -12,6 +12,8 @@
 import json
 import time
 
+import pytest
+
 from eidolon_graph.model import ValidationError, serialize
 
 from backend import service, workspace
@@ -383,3 +385,64 @@ def test_workspace_legacy_graphs_migrated(tmp_path, monkeypatch):
     assert loaded.graph == LOOP  # 图资产原样
     assert loaded.positions() == {}  # 元数据默认重建
     assert (tmp_path / "projects" / "旧图" / "project.json").is_file()
+
+
+# ---------------------------------------------------------------------------
+# 脚本节点(1.2:内嵌脚本自定义节点,保存/加载/注册)
+# ---------------------------------------------------------------------------
+
+SCRIPT_ADDER = '''
+class Node:
+    """两数相加。"""
+    data_in = [DataIn("a", Annot(int)), DataIn("b", Annot(int))]
+    data_out = [DataOut("sum", Annot(int))]
+    groups = [InputGroup("add", inputs=["a", "b"], outputs=["sum"])]
+
+    def tick(self, ctx):
+        return {"sum": ctx.a + ctx.b}
+'''
+
+
+def test_script_node_save_load_and_registration(tmp_path, monkeypatch):
+    """保存 → 清单可见 → builtin_env 注册(调色板 node-types 自动携带)→ 可校验。"""
+    monkeypatch.setattr(workspace, "DATA_ROOT", tmp_path)
+    service.save_script_node("ScriptAdder", SCRIPT_ADDER)
+    # 清单
+    scripts = workspace.list_scripts()
+    assert scripts == [{"type_name": "ScriptAdder", "source": SCRIPT_ADDER}]
+    # 注册进资产库:node-types payload 可见(kind=script)
+    lib, registry = service.builtin_env()
+    payload = service.node_types_payload(lib, registry)
+    by = {s["name"]: s for s in payload}
+    assert "ScriptAdder" in by
+    assert by["ScriptAdder"]["impl"]["kind"] == "script"
+    assert by["ScriptAdder"]["impl"]["source"] == SCRIPT_ADDER
+    # 图引用脚本节点:校验通过、可预览运行
+    g = {"name": "t", "kernel_version": "1.0.0-0",
+         "nodes": [{"node_id": "a", "type_name": "ScriptAdder", "config": {}},
+                   {"node_id": "ia", "type_name": "Input", "config": {}},
+                   {"node_id": "ib", "type_name": "Input", "config": {}}],
+         "wires": [{"src_node": "ia", "src_port": "out", "dst_node": "a", "dst_port": "a"},
+                   {"src_node": "ib", "src_port": "out", "dst_node": "a", "dst_port": "b"}]}
+    assert service.validate_graph_dict(g, lib).ok
+    # 删除后清单与注册消失
+    assert service.delete_script_node("ScriptAdder")
+    assert workspace.list_scripts() == []
+    lib2, _ = service.builtin_env()
+    assert "ScriptAdder" not in lib2.node_types
+
+
+def test_script_node_rejects_bad_source(tmp_path, monkeypatch):
+    """编译失败(语法/声明错误)拒绝保存,不落盘。"""
+    monkeypatch.setattr(workspace, "DATA_ROOT", tmp_path)
+    with pytest.raises(Exception, match="语法错误"):
+        service.save_script_node("Broken", "class Node:\n  def tick( self:")
+    assert workspace.list_scripts() == []
+
+
+def test_script_node_duplicate_name_rejected(tmp_path, monkeypatch):
+    """与内置节点重名:保存即拒绝(调色板/资产库不会出现歧义)。"""
+    monkeypatch.setattr(workspace, "DATA_ROOT", tmp_path)
+    with pytest.raises(Exception, match="重名"):
+        service.save_script_node("Clock", SCRIPT_ADDER)
+    assert workspace.list_scripts() == []
