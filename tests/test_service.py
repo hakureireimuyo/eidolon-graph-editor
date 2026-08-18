@@ -37,7 +37,7 @@ LOOP = {
         {"node_id": "clock", "type_name": "Clock", "config": {}},
         {"node_id": "counter", "type_name": "Counter", "config": {}},
         {"node_id": "threshold", "type_name": "Threshold", "config": {"limit": 5}},
-        {"node_id": "printer", "type_name": "Printer", "config": {}},
+        {"node_id": "printer", "type_name": "Output", "config": {}},
     ],
     "wires": [
         {"src_node": "clock", "src_port": "count", "dst_node": "counter", "dst_port": "increment"},
@@ -59,10 +59,10 @@ def test_node_types_payload_includes_doc():
     assert set(by_name) == set(lib.node_types.keys())
     for spec in payload:
         assert "doc" in spec  # 每个节点都带 doc 字段(无说明为默认空文档)
-    pulse = by_name["Pulse"]
-    assert pulse["doc"]["summary"]  # 概要
-    assert pulse["doc"]["sections"][0]["title"]  # 分节
-    assert all(isinstance(l, str) for l in pulse["doc"]["sections"][0]["lines"])
+    timer = by_name["Timer"]
+    assert timer["doc"]["summary"]  # 概要
+    assert timer["doc"]["sections"][0]["title"]  # 分节
+    assert all(isinstance(l, str) for l in timer["doc"]["sections"][0]["lines"])
 
 
 def test_validate_graph_dict():
@@ -87,7 +87,7 @@ def test_validate_signal_slot_rules():
     cross = {"name": "c", "kernel_version": "1.0.0-0",
              "nodes": [{"node_id": "clk", "type_name": "Clock", "config": {}},
                        {"node_id": "t", "type_name": "Threshold", "config": {"limit": 1}},
-                       {"node_id": "p", "type_name": "Printer", "config": {}}],
+                       {"node_id": "p", "type_name": "Output", "config": {}}],
              "wires": [
                  {"src_node": "clk", "src_port": "count", "dst_node": "t", "dst_port": "value"},
                  {"src_node": "t", "src_port": "over", "dst_node": "p", "dst_port": "msg"},
