@@ -122,7 +122,7 @@ Category = Literal["signal", "data", "source", "encapsulation", "host", "custom"
 | encapsulation | 紫 `#a78bfa` | 封装节点 |
 | host | 青 `#22d3ee` | 宿主交互 |
 | custom | 灰 `#94a3b8` | 自定义 |
-| test | 黄 `#eab308` | 测试节点 |
+| test | 深灰 `#6b7280` | 测试节点 |
 
 - hover 节点 → doc summary tooltip(内核 `impl.doc()`);
 - 节点 id 仅选中时显示;无任何徽标。
@@ -208,11 +208,7 @@ Category = Literal["signal", "data", "source", "encapsulation", "host", "custom"
 
 ---
 
-## 12. 开放问题(待讨论,未实现)
+## 12. 开放问题
 
-1. **信号暴露策略**:不是每个节点都需要渲染数据端口的信号点。Join 必须暴露
-   (单数据/双数据路径要靠信号区分);Random 不必(seed/range 不需要运行时信号
-   控制)。内核信号语义不变(每端口仍带电平),"暴露"只是编辑端视觉概念——
-   需要内核声明承载(节点级或端口级 flag?),哪些节点隐藏,待定。
-2. **数据转信号节点**:信号控制最需要的节点(数据值 → 电平)。转换语义待定,
-   方向之一:支持自定义脚本实现转换(最自由);节点形态与脚本约定待详细讨论。
+信号暴露策略、数据转信号节点等未定案问题集中在
+[node-open-questions.md](./node-open-questions.md),便于之后重新讨论。

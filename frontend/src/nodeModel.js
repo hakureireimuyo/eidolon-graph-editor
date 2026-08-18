@@ -18,7 +18,7 @@ export const CATEGORY_COLORS = {
   encapsulation: '#a78bfa',   // 紫
   host: '#22d3ee',            // 青
   custom: '#94a3b8',          // 灰(中性,不抢眼)
-  test: '#eab308',            // 黄(测试节点:验证用,非基础)
+  test: '#6b7280',            // 深灰(测试节点:验证用,非基础;与 custom 同灰系可区分)
 }
 
 export const CATEGORY_TITLES = {
