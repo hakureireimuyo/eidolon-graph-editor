@@ -18,6 +18,7 @@ export const CATEGORY_COLORS = {
   encapsulation: '#a78bfa',   // 紫
   host: '#22d3ee',            // 青
   custom: '#94a3b8',          // 灰(中性,不抢眼)
+  test: '#eab308',            // 黄(测试节点:验证用,非基础)
 }
 
 export const CATEGORY_TITLES = {
@@ -27,10 +28,11 @@ export const CATEGORY_TITLES = {
   encapsulation: '封装节点',
   host: '宿主交互',
   custom: '自定义',
+  test: '测试节点',
 }
 
-// 调色板分组顺序 = 内核枚举声明序
-export const CATEGORY_ORDER = ['signal', 'data', 'source', 'encapsulation', 'host', 'custom']
+// 调色板分组顺序 = 内核枚举声明序(test 垫底,验证用节点不占常规视线)
+export const CATEGORY_ORDER = ['signal', 'data', 'source', 'encapsulation', 'host', 'custom', 'test']
 
 // 组触发策略连词符(纯箭头,⚡ 被禁;触发驱动两种策略共用 ⇒,完整策略名进 tooltip):
 //   on_all_data_ready → '→'(齐到)/ on_any_data → '↝'(任一)/ 其余 → '⇒'(触发驱动)

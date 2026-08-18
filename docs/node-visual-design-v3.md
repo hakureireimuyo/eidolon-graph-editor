@@ -1,10 +1,10 @@
 # 节点视觉渲染方案 v3 —— 三色圆点端口 + 域分类 + 四层渲染架构
 
 > 替代 v2(方法带方案)。核心立场延续 v2:**节点长什么样,由内核声明推导,编辑器零硬编码**;
-> v3 在此基础上做三件事:(1) 内核新增 `category` 域分类(六值严格枚举),分类信息不再靠
+> v3 在此基础上做三件事:(1) 内核新增 `category` 域分类(七值严格枚举),分类信息不再靠
 > 声明形态猜测;(2) 端口语言极简化为**三色圆点**(废除形状符号与徽标,符号仅保留异常标记);
 > (3) 渲染代码重构为 **L0 派生 / L1 结构 / L2 元素 / L3 状态** 四层。
-> 相关:内核 `model/node.py`(category,1.3)、`model/types.py`(六值枚举)、
+> 相关:内核 `model/node.py`(category,1.3)、`model/types.py`(七值枚举)、
 > `engine/snapshot.py`(运行快照)。
 
 ---
@@ -16,27 +16,28 @@ v2 的四带结构(方法带/信号栏/源产出带/状态带)方向正确,已�
 | v2 问题 | v3 修正 |
 |---|---|
 | **形状符号过载**:●实心/◯空心/▢方块/⚡闪电四种形状 + 六种徽标(▶⊞⌘⌨⏳⚠),视觉噪音大、字体渲染不一致 | 端口 = **圆点一种形状,仅三色区分**(数据蓝/信号绿红/触发橙);徽标全部废除,分类由**域色**承担;符号仅保留熔断异常一个 |
-| **分类靠形态猜测**:调色板"信号运算 vs 基础"两档派生自 control_out,把 LlmCall(有 failed 控制输出)错分进信号运算 | 内核 `category` 六值严格枚举(signal/data/source/encapsulation/host/custom),声明必填、构造点校验;调色板按枚举分组 |
+| **分类靠形态猜测**:调色板"信号运算 vs 基础"两档派生自 control_out,把 LlmCall(有 failed 控制输出)错分进信号运算 | 内核 `category` 七值严格枚举(signal/data/source/encapsulation/host/custom/test),声明必填、构造点校验;调色板按枚举分组 |
 | **渲染逻辑单文件**:GraphNode.jsx 313 行,派生/结构/原子/运行时态混杂,调色板无法共用视觉语言 | L0-L3 四层拆分;派生层为纯函数(零 JSX),画布与调色板同源 |
 | **句柄内缩**:数据点距边界 9px,信号/数据两根线的接入点在水平方向错开——线到点处交叉 | 信号点+数据点**竖直堆叠**且**都贴节点边界**——每条对外连线到达独一无二的高度,不交叉 |
 | **Input/Output 名字硬编码** | `category='host'` 派生宿主交互;交互挂载点由编辑器侧 HOST_INTERACT 表约定(两行,见 §9) |
 
 ---
 
-## 1. 内核侧:category 六值严格枚举(1.3)
+## 1. 内核侧:category 七值严格枚举(1.3)
 
 ```python
-Category = Literal["signal", "data", "source", "encapsulation", "host", "custom"]
+Category = Literal["signal", "data", "source", "encapsulation", "host", "custom", "test"]
 ```
 
 | 值 | 含义 | 内置节点 |
 |---|---|---|
 | `signal` | 纯信号运算元件 | AND / OR / NOT / Latch |
-| `data` | 数据节点 | Join / MultiGate / Buffer / Switch / Threshold / Comparator / Counter |
-| `source` | 自走源节点 | Clock / Timer / Simulate / Random |
+| `data` | 数据节点 | Join / Buffer / Switch / Threshold / Comparator / Counter / Random |
+| `source` | 自走源节点 | Clock / Timer |
 | `encapsulation` | 封装节点(LLM 调度) | LlmCall / ContextStore / ContextCompile |
 | `host` | 宿主交互节点 | Input / Output |
 | `custom` | 自定义节点 | 子图 / 脚本(编译产物自动 custom) |
+| `test` | 测试节点(验证系统运行/渲染效果,非基础) | MultiGate / Simulate |
 
 - **域与形态正交**:信号节点/自走/子图仍由声明派生(徽标已废,形态由带结构表达:自走→自产带);
   category 只回答"哪个域"。
@@ -121,6 +122,7 @@ Category = Literal["signal", "data", "source", "encapsulation", "host", "custom"
 | encapsulation | 紫 `#a78bfa` | 封装节点 |
 | host | 青 `#22d3ee` | 宿主交互 |
 | custom | 灰 `#94a3b8` | 自定义 |
+| test | 黄 `#eab308` | 测试节点 |
 
 - hover 节点 → doc summary tooltip(内核 `impl.doc()`);
 - 节点 id 仅选中时显示;无任何徽标。
@@ -181,8 +183,8 @@ Category = Literal["signal", "data", "source", "encapsulation", "host", "custom"
 
 ## 10. 调色板
 
-- 分组 = 内核六值枚举声明序(signal → data → source → encapsulation → host → custom),
-  未知分类兜底「其他」;
+- 分组 = 内核七值枚举声明序(signal → data → source → encapsulation → host → custom → test,
+  测试节点垫底,不占常规视线),未知分类兜底「其他」;
 - 组标题与条目带**域色点**(与节点面域色条同源);条目显示端口概要(in/out/trig/c-in/c-out/组数);
 - 点击弹说明书悬浮窗、拖入画布添加节点(既有交互不变)。
 
@@ -203,3 +205,14 @@ Category = Literal["signal", "data", "source", "encapsulation", "host", "custom"
 - 端口行 = 每端口一行 → 多端口节点(Comparator 2 参数 2 输出)节点面变高;行高 26px,可接受;画布密集时按需 zoom。
 - 多触发端口同组(内核暂无)会叠在组头同一点——罕见,出现时再处理。
 - 竖直堆叠对点间距 4px,误点风险低(句柄 9px);若实机观感需调整,纯 CSS 参数。
+
+---
+
+## 12. 开放问题(待讨论,未实现)
+
+1. **信号暴露策略**:不是每个节点都需要渲染数据端口的信号点。Join 必须暴露
+   (单数据/双数据路径要靠信号区分);Random 不必(seed/range 不需要运行时信号
+   控制)。内核信号语义不变(每端口仍带电平),"暴露"只是编辑端视觉概念——
+   需要内核声明承载(节点级或端口级 flag?),哪些节点隐藏,待定。
+2. **数据转信号节点**:信号控制最需要的节点(数据值 → 电平)。转换语义待定,
+   方向之一:支持自定义脚本实现转换(最自由);节点形态与脚本约定待详细讨论。
