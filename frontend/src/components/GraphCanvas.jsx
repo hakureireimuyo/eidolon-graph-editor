@@ -1,15 +1,15 @@
-import React, { useCallback, useMemo } from 'react'
-import ReactFlow, { BaseEdge, ConnectionMode, getBezierPath, useReactFlow } from 'reactflow'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import ReactFlow, { BaseEdge, ConnectionMode, applyNodeChanges, getBezierPath, useReactFlow } from 'reactflow'
 import 'reactflow/dist/style.css'
 import GraphNode from './GraphNode.jsx'
 
 const nodeTypes = { graph: GraphNode }
 
-// 连到触发端口(事件端口)的边:数据端口蓝 → 触发端口黄 的渐变,一眼看出
+// 连到触发端口(事件端口)的边:数据端口蓝 → 触发端口橙 的渐变,一眼看出
 // "这条线驱动一次事件"。渐变 id 按边 id 唯一,defs 随边进入 React Flow 的
 // SVG 层(同一 svg 文档内引用生效)。
 const TRIGGER_SRC = '#7fb0f7'   // 数据输出端口色(--data)
-const TRIGGER_DST = '#eab308'   // 触发端口色(--trigger)
+const TRIGGER_DST = '#f97316'   // 触发端口色(--trigger,橙)
 function TriggerGradientEdge({ id, sourceX, sourceY, targetX, targetY,
   sourcePosition, targetPosition, markerEnd }) {
   const [path] = getBezierPath({ sourceX, sourceY, targetX, targetY,
@@ -48,7 +48,7 @@ const portOf = (handleId) => {
 }
 
 export default function GraphCanvas({
-  graph, specs, layout, snap, onLayout, selected, onSelect, applyOps, onNotice, background,
+  graph, specs, layout, snap, onLayout, selected, onSelect, applyOps, onNotice, background, onInject,
 }) {
   const { screenToFlowPosition } = useReactFlow()
   const specOf = useMemo(() => {
@@ -56,6 +56,16 @@ export default function GraphCanvas({
     for (const s of specs) m[s.name] = s
     return m
   }, [specs])
+
+  // 连线索引(性能):dst_node|dst_port|slot → wire。signalLevels 按端口查线
+  // 从 O(端口×连线) 降为 O(端口);快照高频刷新时这是每帧热路径。
+  const wireIndex = useMemo(() => {
+    const m = new Map()
+    for (const w of graph.wires) {
+      m.set(`${w.dst_node}|${w.dst_port}|${w.dst_slot || 'data'}`, w)
+    }
+    return m
+  }, [graph.wires])
 
   // 信号电平实时显示(世界运行时由 WS 快照驱动,green=高/red=低):
   // 输出侧电平来自快照(数据输出自动传导 / 控制输出显式写);
@@ -89,62 +99,72 @@ export default function GraphCanvas({
       for (const p of spec.control_in || []) {
         lv.in[p.name] = ns.control_in_levels?.[p.name] ?? (p.default_level || 'active')
       }
-      for (const t of spec.trigger_in || []) {
-        // 触发信号槽电平:快照记录上一电平(变化检测用);未连线/未运行默认高
-        lv.in[t.name] = ns.trigger_in_levels?.[t.name] ?? 'active'
-      }
       for (const p of spec.data_in || []) {
-        const sigWire = graph.wires.find((w) =>
-          w.dst_node === n.node_id && w.dst_port === p.name && (w.dst_slot || 'data') === 'signal')
-        const dataWire = graph.wires.find((w) =>
-          w.dst_node === n.node_id && w.dst_port === p.name && (w.dst_slot || 'data') === 'data')
+        const sigWire = wireIndex.get(`${n.node_id}|${p.name}|signal`)
+        const dataWire = wireIndex.get(`${n.node_id}|${p.name}|data`)
         const src = sigWire || dataWire
         lv.in[p.name] = src ? outLevelOf(src.src_node, src.src_port) : 'active'
       }
       m[n.node_id] = lv
     }
     return m
-  }, [snap, graph.nodes, graph.wires, specOf])
+  }, [snap, graph.nodes, wireIndex, specOf])
 
-  // 图资产(内核格式)不携带 UI 坐标:摆放位置存布局表(编辑器侧表现元数据)
-  const nodes = useMemo(
-    () =>
-      graph.nodes.map((n, i) => ({
-        id: n.node_id,
-        type: 'graph',
-        position: layout[n.node_id] || { x: 60 + (i % 4) * 260, y: 60 + Math.floor(i / 4) * 200 },
-        data: {
-          label: specOf[n.type_name]?.name || n.type_name,
-          spec: specOf[n.type_name],
-          selected: n.node_id === selected,
-          levels: signalLevels?.[n.node_id] || null,
-        },
-      })),
-    [graph.nodes, specOf, layout, selected, signalLevels],
-  )
+  // 受控节点状态(React Flow 内部状态 holder):拖动/尺寸/选中由
+  // applyNodeChanges 维护——整体重建 nodes 数组会丢失内部状态,
+  // 导致拖动中断/位置跳变/节点消失(React Flow 11 受控模式已知坑)。
+  const [rfNodes, setRfNodes] = useState([])
 
-  // 边按 dst_slot 定位两端句柄:data 线接数据句柄,signal 线接信号句柄;
-  // 信号线颜色随电平变化(淡红/淡绿),数据线保持默认
+  // 图/规格/选中/电平变化 → 仅同步 data 字段,保留既有 position/尺寸
+  // (位置由拖动(applyNodeChanges)与加载(layout)驱动,layout 不在此依赖
+  // ——拖动中 layout 每帧变化,若依赖会反复重建)
+  useEffect(() => {
+    setRfNodes((prev) => {
+      const byId = new Map(prev.map((n) => [n.id, n]))
+      return graph.nodes.map((n, i) => {
+        const old = byId.get(n.node_id)
+        return {
+          ...old,
+          id: n.node_id,
+          type: 'graph',
+          position: old?.position || layout[n.node_id]
+            || { x: 60 + (i % 4) * 260, y: 60 + Math.floor(i / 4) * 200 },
+          data: {
+            label: specOf[n.type_name]?.name || n.type_name,
+            spec: specOf[n.type_name],
+            selected: n.node_id === selected,
+            levels: signalLevels?.[n.node_id] || null,
+            snapNode: snap?.nodes?.[n.node_id] || null,
+            config: n.config,
+            onInject,
+          },
+        }
+      })
+    })
+  }, [graph.nodes, specOf, selected, signalLevels, snap, onInject])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 边按目标端口定位句柄:普通输入按 dst_slot(data 槽 / 信号槽);
+  // 触发入口统一句柄 in:trigger:{名}(数据线/信号线都汇聚到组名上的入口)
   const edges = useMemo(
     () =>
       graph.wires.map((w, i) => {
         const slot = w.dst_slot || 'data'
+        const dstSpec = specOf[graph.nodes.find((n) => n.node_id === w.dst_node)?.type_name]
+        const dstIsTrigger = !!dstSpec
+          && (dstSpec.trigger_in || []).some((p) => p.name === w.dst_port)
         const edge = {
           id: `e${i}`,
           source: w.src_node,
           target: w.dst_node,
           sourceHandle: `out:${slot}:${w.src_port}`,
-          targetHandle: `in:${slot}:${w.dst_port}`,
+          targetHandle: dstIsTrigger ? `in:trigger:${w.dst_port}` : `in:${slot}:${w.dst_port}`,
           data: { wire: w },
         }
-        // 目标为触发输入(TriggerIn):数据线 → 渐变边(数据蓝 → 触发黄);
-        // 信号线 → 触发黄描边(电平双沿都产生激活请求,电平色无意义)
-        const dstSpec = specOf[graph.nodes.find((n) => n.node_id === w.dst_node)?.type_name]
-        const dstIsTrigger = !!dstSpec
-          && (dstSpec.trigger_in || []).some((p) => p.name === w.dst_port)
+        // 目标为触发入口:数据线 → 渐变边(数据蓝 → 触发橙);
+        // 信号线 → 触发橙描边(电平变化触发,电平色无意义)
         if (dstIsTrigger) {
           if (slot === 'data') edge.type = 'triggerGrad'
-          else edge.style = { stroke: '#eab308' }
+          else edge.style = { stroke: '#f97316' }
         } else if (slot === 'signal' && signalLevels) {
           const lvl = signalLevels[w.src_node]?.out?.[w.src_port]
           if (lvl === 'active') edge.style = { stroke: '#4f9e6f' }
@@ -155,24 +175,29 @@ export default function GraphCanvas({
     [graph.wires, graph.nodes, specOf, signalLevels],
   )
 
-  // 拖动中位置实时跟随:layout 状态连续更新(保存时随工程落盘)
+  // 受控模式官方写法:applyNodeChanges 全量应用(含 dimension/select/reset——
+  // 漏掉 dimension 会让节点消失);position 变化同步写 layout(保存随工程落盘;
+  // 拖动中每帧同步更新,异步延迟会让 delta 应用到过期位置导致节点跳变)
   const onNodesChange = useCallback(
     (changes) => {
       for (const c of changes) {
-        if (c.type === 'position' && c.dragging && c.position) {
+        if (c.type === 'position' && c.position) {
           onLayout(c.id, { x: c.position.x, y: c.position.y })
         }
       }
+      setRfNodes((nds) => applyNodeChanges(changes, nds))
     },
     [onLayout],
   )
 
-  // 连线合法性指示器:输出→输入(数据槽不连信号接收端);输入→输入 = 移动下游端
+  // 连线合法性指示器:输出→输入(数据槽不连信号接收端);输入→输入 = 移动下游端;
+  // 触发入口(统一句柄)接受数据线与信号线(数据输出 / 控制输出都合法)
   const isValidConn = useCallback((conn) => {
     const src = portOf(conn.sourceHandle)
     const dst = portOf(conn.targetHandle)
     if (src.side === 'in' && dst.side === 'in') return true
     if (src.side !== 'out' || dst.side !== 'in') return false
+    if (dst.slot === 'trigger') return true
     return !(src.slot === 'data' && dst.slot !== 'data')
   }, [])
 
@@ -180,11 +205,14 @@ export default function GraphCanvas({
     (conn) => {
       const src = portOf(conn.sourceHandle)
       const dst = portOf(conn.targetHandle)
+      const dstIsTrigger = dst.slot === 'trigger'
 
       // 1) 输入端拖动(两端都是输入):移动已有线的下游端,上游输出不变
       if (src.side === 'in' && dst.side === 'in') {
+        // 触发入口的连线 slot 由源类型决定,按 (节点, 端口) 匹配任意槽
         const moved = graph.wires.find((w) =>
-          w.dst_node === conn.target && w.dst_port === dst.name && (w.dst_slot || 'data') === dst.slot)
+          w.dst_node === conn.target && w.dst_port === dst.name
+          && (dstIsTrigger || (w.dst_slot || 'data') === dst.slot))
         if (!moved) {
           onNotice('该输入端口没有连线(从输出端拖动可新建连线)')
           return
@@ -193,24 +221,29 @@ export default function GraphCanvas({
           { op: 'remove_edge', wire: moved },
           { op: 'add_edge', wire: {
             src_node: moved.src_node, src_port: moved.src_port,
-            dst_node: conn.source, dst_port: src.name, dst_slot: src.slot,
+            dst_node: conn.source, dst_port: src.name,
+            dst_slot: src.slot === 'trigger' ? 'data' : src.slot,
           } },
         ])
         return
       }
 
-      // 2) 常规/反向新建:源输出 → 目标输入(数据槽不能连信号接收端)
+      // 2) 常规/反向新建:源输出 → 目标输入(数据槽不能连信号接收端;
+      //    触发入口例外:数据线/信号线都可触发)
       if (src.side !== 'out' || dst.side !== 'in') {
         onNotice('连线必须从输出端口到输入端口')
         return
       }
-      if (src.slot === 'data' && dst.slot !== 'data') {
+      if (src.slot === 'data' && dst.slot !== 'data' && !dstIsTrigger) {
         onNotice('数据槽不能连信号接收端(信号线请从信号端口拉出)')
         return
       }
+      // 触发入口的 dst_slot 由源决定:数据输出 → data(载荷+激活),
+      // 控制/信号输出 → signal(电平变化触发)
       const wire = {
         src_node: conn.source, src_port: src.name,
-        dst_node: conn.target, dst_port: dst.name, dst_slot: dst.slot,
+        dst_node: conn.target, dst_port: dst.name,
+        dst_slot: dstIsTrigger ? src.slot : dst.slot,
       }
       // 同一根线已存在:忽略(拖动后落回原位)
       const dup = graph.wires.find((w) =>
@@ -218,10 +251,11 @@ export default function GraphCanvas({
         w.dst_node === wire.dst_node && w.dst_port === wire.dst_port &&
         (w.dst_slot || 'data') === wire.dst_slot)
       if (dup) return
-      // 3) 目标输入已有线 → 替换(移除旧线 + 添加新线,同一批事务)
+      // 3) 目标输入已有线 → 替换(移除旧线 + 添加新线,同一批事务);
+      //    触发入口扇入唯一:新线替换旧线不分槽(数据线/信号线二选一)
       const existing = graph.wires.find((w) =>
-        w.dst_node === wire.dst_node && w.dst_port === wire.dst_port &&
-        (w.dst_slot || 'data') === wire.dst_slot)
+        w.dst_node === wire.dst_node && w.dst_port === wire.dst_port
+        && (dstIsTrigger || (w.dst_slot || 'data') === wire.dst_slot))
       applyOps(existing
         ? [{ op: 'remove_edge', wire: existing }, { op: 'add_edge', wire }]
         : [{ op: 'add_edge', wire }])
@@ -247,7 +281,7 @@ export default function GraphCanvas({
     // dots 原点矩阵 / lines 网格线,尺寸颜色在 styles.css .canvas-bg-* 控制
     <main className={`canvas canvas-bg-${background || 'dots'}`} onDrop={onDrop} onDragOver={(e) => e.preventDefault()}>
       <ReactFlow
-        nodes={nodes}
+        nodes={rfNodes}
         edges={edges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}

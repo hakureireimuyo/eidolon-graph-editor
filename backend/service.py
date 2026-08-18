@@ -22,6 +22,7 @@ from eidolon_graph.engine import (AddEdge, AddNode, ChangeImpl, EditOp, Event, N
                                   RemoveEdge, RemoveNode, SetConfig, World, apply_edits)
 from eidolon_graph.engine.builtins import OUTPUT, register_builtins
 from eidolon_graph.engine.script import ScriptError, compile_script
+from eidolon_graph.nodes.llm import register_llm_nodes
 from eidolon_graph.model import (AssetLibrary, Graph, NodeInstance, ValidationError,
                                  ValidationReport, Wire, serialize, validate)
 
@@ -42,6 +43,7 @@ def builtin_env() -> tuple[AssetLibrary, NodeRegistry]:
     lib = AssetLibrary()
     registry = NodeRegistry()
     register_builtins(lib, registry)
+    register_llm_nodes(lib, registry)  # LLM 封装节点(LlmCall/ContextStore/ContextCompile)
     for d in workspace.list_scripts():
         try:
             nt, _ = compile_script(d["source"], d["type_name"])

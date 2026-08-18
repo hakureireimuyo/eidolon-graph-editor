@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { CATEGORY_TITLES, typeLabel } from '../nodeModel.js'
 
 // 配置值编解码:内核配置值是 JSON 原生类型(数字/布尔/字符串)
 function parseValue(s) {
@@ -15,26 +16,15 @@ const LEVEL_LABEL = { active: '高', inactive: '低' }
 
 export default function Inspector({ node, spec, applyOps, onClose, onInject, onCollapse }) {
   const [cfg, setCfg] = useState({})
-  const [inputValue, setInputValue] = useState('')
   const [trigVals, setTrigVals] = useState({})  // 触发端口 → 输入文本(每端口独立)
   const [injecting, setInjecting] = useState(false)
   // 切换选中节点时重置各自编辑态:每个节点的输入栏/配置互不串联
   useEffect(() => {
     setCfg(node ? { ...node.config } : {})
-    setInputValue('')
     setTrigVals({})
   }, [node?.node_id]) // eslint-disable-line
 
-  // Input 宿主节点:手动触发事件(注入新值 → 输出事件向后传播)
-  const isInputNode = node && spec && spec.name === 'Input'
-  const doInject = async () => {
-    setInjecting(true)
-    try {
-      await onInject(node.node_id, 'in', inputValue)
-    } finally {
-      setInjecting(false)
-    }
-  }
+  // Input 节点注入栏已移到节点面(选中时浮现,见 GraphNode.jsx);
   // 触发输入(TriggerIn)泛化注入栏:注入数据事件 = 载荷 + 激活请求(内核 1.0)
   const triggerPorts = spec?.trigger_in || []
   const doTrigger = async (port) => {
@@ -86,8 +76,7 @@ export default function Inspector({ node, spec, applyOps, onClose, onInject, onC
       {head}
       <div className="inspector-id">
         {node.node_id}
-        {spec.auto && <span className="gnode-badge gnode-badge-auto">自走</span>}
-        {(spec.control_out || []).length > 0 && <span className="gnode-badge gnode-badge-signal">信号节点</span>}
+        {spec.category && <span className="tag tag-group">{CATEGORY_TITLES[spec.category] || spec.category}</span>}
       </div>
 
       <h4>端口</h4>
@@ -95,6 +84,7 @@ export default function Inspector({ node, spec, applyOps, onClose, onInject, onC
         {(spec.data_in || []).map((p) => (
           <li key={p.name}>
             <span className="tag tag-data">data</span>in:{p.name}
+            {p.type ? ` :${typeLabel(p.type)}` : ''}
             {p.const_set ? ` (默认 ${JSON.stringify(p.const)})` : ''}
             {p.global_read ? ` (全局读取 ${p.global_read})` : ''}
             {p.optional ? ' (可选,默认取配置)' : ''}
@@ -103,6 +93,7 @@ export default function Inspector({ node, spec, applyOps, onClose, onInject, onC
         {(spec.trigger_in || []).map((p) => (
           <li key={p.name}>
             <span className="tag tag-trigger">trigger</span>in:{p.name}
+            {p.type ? ` :${typeLabel(p.type)}` : ''}
             <em> 数据线/信号线均可产生激活请求</em>
           </li>
         ))}
@@ -116,6 +107,7 @@ export default function Inspector({ node, spec, applyOps, onClose, onInject, onC
         {(spec.data_out || []).map((p) => (
           <li key={p.name}>
             <span className="tag tag-data">data</span>out:{p.name}
+            {p.type ? ` :${typeLabel(p.type)}` : ''}
             {p.global_write ? ` (全局写入 ${p.global_write})` : ''}
           </li>
         ))}
@@ -170,28 +162,6 @@ export default function Inspector({ node, spec, applyOps, onClose, onInject, onC
             </div>
           ))}
           <p className="hint">注入一次激活请求:数据事件到达触发输入 = 载荷 + 激活(组按策略响应);空载荷注入 true,输入值按 JSON 解析(123 / true / "文本")</p>
-        </>
-      )}
-
-      {isInputNode && (
-        <>
-          <h4>手动输入(触发事件)</h4>
-          <div className="config-form">
-            <label className="config-field">
-              <input
-                value={inputValue}
-                placeholder="输入内容…"
-                onChange={(e) => setInputValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') doInject()
-                }}
-              />
-            </label>
-            <button className="primary" onClick={doInject} disabled={injecting}>
-              {injecting ? '注入中…' : '输入'}
-            </button>
-          </div>
-          <p className="hint">按下后产生输出事件,输入内容作为结果向后传递</p>
         </>
       )}
 

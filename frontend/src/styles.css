@@ -9,6 +9,7 @@
   --dim: #8a93a5;
   --data: #3b82f6;
   --control: #f59e0b;
+  --trigger: #f97316;
   --danger: #ef4444;
   --ok: #22c55e;
 }
@@ -127,11 +128,12 @@ button.danger { background: #6b1f24; border-color: #a33; }
 .palette-item:hover { border-color: var(--data); }
 .palette-item-locked { opacity: 0.45; cursor: not-allowed; }
 .palette-item-locked:hover { border-color: var(--border); }
-.palette-name { font-weight: 600; }
+.palette-name { font-weight: 600; display: flex; align-items: center; gap: 6px; }
 .palette-ports { color: var(--dim); font-size: 10px; }
 .palette-empty { color: var(--dim); }
 .palette-category { margin-bottom: 8px; }
 .palette-cat-title {
+  display: flex; align-items: center; gap: 5px;
   color: var(--dim); font-size: 11px; font-weight: 600;
   margin: 8px 0 4px; padding-bottom: 2px;
   border-bottom: 1px solid var(--border);
@@ -139,6 +141,8 @@ button.danger { background: #6b1f24; border-color: #a33; }
 }
 .palette-cat-title:hover { color: var(--text); }
 .palette-cat-arrow { display: inline-block; width: 12px; }
+/* 域色点:调色板条目/组标题的域分类标记(与节点面域色条同源) */
+.palette-domain { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 
 /* 画布 */
 .canvas { flex: 1; min-width: 0; }
@@ -156,76 +160,130 @@ button.danger { background: #6b1f24; border-color: #a33; }
   background-size: 28px 28px;
 }
 
-/* 节点 */
+/* 节点(v3:三色圆点端口 + 域色条,布局由内核声明派生——见 docs/node-visual-design-v3.md) */
 .gnode {
+  position: relative;
   background: var(--panel); border: 1px solid var(--border);
   border-radius: 8px; min-width: 150px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
 }
 .gnode-selected { border-color: var(--data); box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25); }
+.gnode-fault { border-color: var(--danger); }  /* 运行时熔断(circuit_open) */
+
+/* 域色条:节点左缘 3px,域分类的唯一颜色载体(颜色由 nodeModel 域色映射注入) */
+.gnode-colorbar {
+  position: absolute; left: -1px; top: -1px; bottom: -1px; width: 3px;
+  border-radius: 8px 0 0 8px; pointer-events: none;
+}
+
 .gnode-title {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 5px 10px; font-weight: 700;
+  display: flex; justify-content: space-between; align-items: center; gap: 6px;
+  padding: 4px 10px 4px 13px; font-weight: 700; font-size: 12px;
   background: var(--panel-2); border-radius: 8px 8px 0 0;
 }
+.gnode-left { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.gnode-name { white-space: nowrap; }
+.gnode-fault-mark { flex-shrink: 0; }
 .gnode-id { color: var(--dim); font-weight: 400; font-size: 10px; }
-.gnode-left { display: flex; align-items: center; gap: 6px; }
-.gnode-badges { display: flex; gap: 4px; }
-.gnode-badge { border-radius: 3px; padding: 0 4px; font-size: 9px; font-weight: 400; }
-.gnode-badge-auto { background: #1d3355; color: #7fb0f7; }
-.gnode-badge-signal { background: #4a3413; color: #fbbf24; }
-.gnode-body {
-  display: flex; flex-direction: column; gap: 4px; padding: 4px;
-}
 .gnode-unknown { color: var(--danger); }
 .gnode-unknown-note { padding: 6px 10px; font-size: 11px; }
+.gnode-body { display: flex; flex-direction: column; gap: 3px; padding: 3px 0; }
 
-/* ---- 输入组矩阵容器(组 = 节点内部布局的一等公民):数学矩阵符号 ---- */
-.port-group {
-  border: 1px solid var(--border); border-radius: 6px;
-  background: var(--panel-2);
+/* ---- 组单元:组头(函数 + 触发点)+ 组身(参数列 / 输出列,连词符居中) ---- */
+.gunit { border-radius: 5px; }
+.gunit-head {
+  position: relative; display: flex; align-items: center; gap: 8px;
+  min-height: 26px; padding: 1px 10px 1px 6px; white-space: nowrap;
 }
-.port-group-stray { border-style: dashed; background: transparent; }  /* 组外端口区(控制/源输出) */
-/* 组框标题:声明了触发输入或非默认触发策略的组(如 `flush · on_trigger`) */
-.port-group-title {
-  padding: 2px 10px; font-size: 10px; color: var(--control);
-  border-bottom: 1px dashed var(--border); white-space: nowrap;
+.gunit-name { font-weight: 600; }
+.gunit-body {
+  display: flex; align-items: center; gap: 8px; padding: 0;
 }
-/* 两列矩阵:输入 | 输出,grid 行对齐(输出与触发它的输入同行) */
-.port-group-matrix { display: grid; grid-template-columns: 1fr 1fr; }
-.port-cell-empty { min-height: 40px; }  /* 空行占位,维持行对齐 */
+.gunit-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.gunit-glyph { color: var(--dim); font-size: 12px; align-self: center; }
+/* 组身缩进只作用于标签(参数列表归属组头函数);句柄永远贴节点边界 */
+.gunit-body .port-in { padding-left: 34px; }
+/* 组刚触发(新鲜标记):脉冲高亮 */
+.gunit-pulse { animation: band-pulse 0.5s ease; }
+@keyframes band-pulse {
+  0% { background: rgba(59, 130, 246, 0.30); }
+  100% { background: transparent; }
+}
 
-/* 端口行:行高 40px——同端口信号/数据句柄配对近距离(±6px),
-   不同端口行距拉开(行间净距 22px),端口独立清晰 */
-.port-row {
-  position: relative; min-height: 40px;
-  display: flex; align-items: center;
-  padding: 2px 10px; font-size: 11px;
+/* ---- 端口行:每端口一行;一对竖直堆叠的点(信号上/数据下)贴节点边界 ---- */
+.port {
+  position: relative; display: flex; align-items: center;
+  min-height: 26px; font-size: 11px; white-space: nowrap; color: var(--text);
 }
-.port-group-matrix .port-row:nth-child(even) { justify-content: flex-end; }  /* 右列(输出)行右对齐 */
+.port-in { padding-left: 14px; }
+.port-out { justify-content: flex-end; padding-right: 14px; }
 .port-label { white-space: nowrap; }
-.port-semantic { color: var(--control); font-style: normal; font-size: 10px; margin-left: 4px; }
-.port-bound { color: var(--ok); font-style: normal; font-size: 10px; margin-left: 4px; }
-.port-trigger { color: #eab308; font-style: normal; font-size: 10px; margin-left: 4px; } /* 触发/事件端口:黄色 */
-.port-label-trigger { color: #eab308; } /* 节点上的触发输入端口名:黄色(函数调用级) */
+.port-label-dim { color: var(--dim); }          /* 绑定端口(默认常量/全局读取) */
+.port-optional::after { content: '?'; color: var(--dim); }
+/* 触发点:组头行内,名字紧跟橙点;句柄锚定组头行(左边界) */
+.port-trigger { position: static; display: inline-flex; align-items: center; gap: 7px; padding-left: 14px; }
+.trigger-name { color: var(--dim); }
 
-/* 端口句柄:数据槽蓝(实心)/ 信号槽橙(空心,运行中按电平着色) */
-.handle { width: 9px; height: 9px; border: 1px solid #000; }
-.handle-data { background: var(--data); }
-.handle-trigger { background: #eab308; border-color: #ca8a04; } /* 触发端口句柄:黄色(与渐变末端一致) */
-/* 信号句柄默认 = 绿实心(与默认启动 active 对应);运行中电平 inactive → 红 */
-.handle-signal { background: var(--ok); border-color: #15803d; }
-.handle-signal.lvl-inactive { background: var(--danger); border-color: #b91c1c; }
-
-/* Handle 定位(关键,禁止覆盖 React Flow 的 transform):
-   每个句柄包一个 0×0 绝对定位点 .port-handle-wrap,wrapper 原点 = 句柄中心;
-   Handle 在 wrapper 内沿用 React Flow 默认几何(left:0/top:50%/translate(-50%,-50%))
-   自动居中于 wrapper 原点。信号在上(行中心-6px)、数据在下(行中心+6px)。 */
+/* Handle 定位(v1 技巧保留,禁止覆盖 React Flow 的 transform):
+   句柄包 0×0 绝对定位点,wrapper 原点 = 句柄中心;React Flow 默认几何
+   自动居中于原点。数据端口行:信号点 top 4px、数据点 top 17px(竖直
+   堆叠、间距 4px);两点都贴边界(left/right 0)——暴露的接线端子,不内缩;
+   控制/触发单点垂直居中(top 9px)。 */
 .port-handle-wrap { position: absolute; width: 0; height: 0; z-index: 2; }
 .port-handle-wrap.in { left: 0; }
 .port-handle-wrap.out { right: 0; }
-.port-handle-wrap.signal { top: calc(50% - 6px); }
-.port-handle-wrap.data { top: calc(50% + 6px); }
+.port-in .port-handle-wrap.signal { top: 4px; }
+.port-in .port-handle-wrap.data { top: 17px; }
+.port-in .port-handle-wrap.ctrl { top: 9px; }
+.gunit-head .port-handle-wrap.trigger { left: 0; top: 9px; }
+.port-out .port-handle-wrap.signal { top: 4px; }
+.port-out .port-handle-wrap.data { top: 17px; }
+.port-out .port-handle-wrap.ctrl { top: 9px; }
+
+/* ---- 三色圆点(唯一端口词汇:形状全同,仅颜色区分) ---- */
+.handle { width: 9px; height: 9px; border: 1px solid #000; }
+/* 数据点:恒定蓝(值载体) */
+.handle-data { background: var(--data); border-color: #1d4ed8; border-radius: 50%; }
+/* 信号点:未运行灰;运行中按电平填色(绿高/红低) */
+.handle-signal { background: #5b6472; border-color: #3a4150; border-radius: 50%; }
+.handle-signal.lvl-active { background: var(--ok); border-color: #15803d; }
+.handle-signal.lvl-inactive { background: var(--danger); border-color: #991b1b; }
+/* 触发点:恒定橙(调用级激活入口) */
+.handle-trigger { background: var(--trigger); border-color: #c2410c; border-radius: 50%; }
+
+/* ---- 带:信号栏(节点级控制端口)/ 源产出 / 构造(init 预埋)/ 状态 / 配置 ---- */
+.band {
+  display: flex; align-items: center; gap: 8px;
+  min-height: 26px; padding: 1px 0; border-radius: 5px;
+  font-size: 11px; white-space: nowrap;
+}
+.band-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.band-label { color: var(--dim); font-size: 10px; margin: 0 6px; }
+/* 信号栏:节点级控制端口(level 域身份色底纹) */
+.band-signal { background: rgba(245, 158, 11, 0.07); border: 1px solid rgba(245, 158, 11, 0.22); }
+/* 源产出带 / 构造带:auto 节点未入组输出 / init 参数 */
+.band-source, .band-init { border: 1px dashed var(--border); }
+/* 运行读值带:state 字段上脸(WS 快照驱动) */
+.band-state { background: var(--panel-2); font-size: 10px; color: var(--dim); flex-wrap: wrap; row-gap: 2px; padding: 1px 6px; }
+.state-chip em { color: #9db4d6; font-style: normal; }
+/* 配置带:全部 config 字段(选中/hover 显示;默认值暗、覆盖值亮) */
+.band-config { background: var(--panel-2); font-size: 10px; display: none; flex-wrap: wrap; row-gap: 2px; padding: 1px 6px; }
+.gnode:hover .band-config, .gnode-selected .band-config { display: flex; }
+.cfg-chip { color: var(--dim); }
+.cfg-chip-override { color: var(--ok); }
+
+/* Input 节点注入栏(选中时在节点面上浮现;host 域交互) */
+.gnode-inject {
+  display: flex; gap: 4px; padding: 4px 8px;
+  border-top: 1px solid var(--border);
+}
+.gnode-inject input {
+  flex: 1; min-width: 0;
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 3px 6px; font-size: 11px;
+}
+.gnode-inject button { padding: 2px 10px; font-size: 11px; }
 
 /* React Flow 边:粗细统一 2px;普通数据边鲜亮蓝(与触发渐变边的粗细一致) */
 .react-flow__edge-path { stroke: #7fb0f7; stroke-width: 2px; }

@@ -303,6 +303,7 @@ export default function App() {
             applyOps={applyOps}
             onNotice={flashNotice}
             background={background}
+            onInject={handleInject}
           />
         </ReactFlowProvider>
         <div className={`side${sideCollapsed ? ' side-collapsed' : ''}`} style={sideCollapsed ? undefined : { width: sideWidth }}>

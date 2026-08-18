@@ -1,16 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { DocBody } from './DocText.jsx'
+import { CATEGORY_ORDER, CATEGORY_TITLES, paletteInfoOf } from '../nodeModel.js'
 
 // 调色板数据源 = 后端 /api/node-types(内核节点协议本身,前端不硬编码节点清单)。
-// 分类规则(内核语义推导):信号运算 = 声明控制输出的信号节点;基础节点 = 其余。
-// 分类支持点击标题展开/收起。
-// 交互约定:点击节点 = 弹出悬浮窗显示说明书;拖入画布 = 添加节点。
-const CATEGORIES = [
-  { key: 'signal', title: '信号运算', test: (s) => (s.control_out || []).length > 0 },
-  { key: 'basic', title: '基础节点', test: (s) => !((s.control_out || []).length > 0) },
-]
+// 分组 = 内核 category 六值枚举(声明序),组标题与条目带域色点;分类支持
+// 点击标题展开/收起。交互约定:点击节点 = 弹出悬浮窗显示说明书;
+// 拖入画布 = 添加节点。
 
-function PaletteItem({ spec, locked, onShowDoc }) {
+function PaletteItem({ spec, info, locked, onShowDoc }) {
   return (
     <div
       className={`palette-item${locked ? ' palette-item-locked' : ''}`}
@@ -20,24 +17,13 @@ function PaletteItem({ spec, locked, onShowDoc }) {
         e.dataTransfer.effectAllowed = 'move'
       }}
       onClick={(e) => onShowDoc(spec, e)}
-      title={locked ? '运行中,图已锁定编辑' : `${spec.doc?.summary || spec.name}(点击查看说明书,拖入画布添加)`}
+      title={locked ? '运行中,图已锁定编辑' : `${info.docSummary || spec.name}(点击查看说明书,拖入画布添加)`}
     >
       <span className="palette-name">
-        {spec.name}
-        {spec.auto && <span className="gnode-badge gnode-badge-auto">自走</span>}
-        {(spec.control_out || []).length > 0 && (
-          <span className="gnode-badge gnode-badge-signal">信号</span>
-        )}
+        <span className="palette-domain" style={{ background: info.color }} />
+        {info.name}
       </span>
-      <span className="palette-ports">
-        {[
-          ...(spec.data_in || []).map(() => 'in'),
-          ...(spec.data_out || []).map(() => 'out'),
-          ...(spec.control_in || []).map(() => 'c-in'),
-          ...(spec.control_out || []).map(() => 'c-out'),
-          ...((spec.groups || []).length > 0 ? [`${spec.groups.length}组`] : []),
-        ].join(' ')}
-      </span>
+      <span className="palette-ports">{info.ports}</span>
     </div>
   )
 }
@@ -85,28 +71,38 @@ export default function NodePalette({ specs, locked, onCollapse }) {
   const [popup, setPopup] = useState(null)
   const toggle = (key) => setCollapsed((c) => ({ ...c, [key]: !c[key] }))
   const showDoc = (spec, e) => setPopup({ spec, x: e.clientX + 12, y: e.clientY + 12 })
+  // 按内核枚举声明序分组;未知分类兜底进「其他」
+  const byCat = {}
+  for (const s of specs) {
+    const cat = s.category && CATEGORY_TITLES[s.category] ? s.category : 'other'
+    ;(byCat[cat] ||= []).push(s)
+  }
+  const cats = [...CATEGORY_ORDER.filter((c) => byCat[c]), ...(byCat.other ? ['other'] : [])]
   return (
     <aside className="palette">
       <div className="palette-head">
         <h3>节点</h3>
         <button type="button" className="palette-toggle" onClick={onCollapse} title="收起节点面板">◀</button>
       </div>
-      {CATEGORIES.map((cat) => {
-        const items = specs.filter(cat.test)
-        if (items.length === 0) return null
-        const isCollapsed = collapsed[cat.key]
+      {cats.map((cat) => {
+        const items = byCat[cat]
+        if (!items || items.length === 0) return null
+        const isCollapsed = collapsed[cat]
+        const info = paletteInfoOf(items[0])
         return (
-          <div key={cat.key} className="palette-category">
+          <div key={cat} className="palette-category">
             <div
               className="palette-cat-title"
-              onClick={() => toggle(cat.key)}
+              onClick={() => toggle(cat)}
               title={isCollapsed ? '展开' : '收起'}
             >
               <span className="palette-cat-arrow">{isCollapsed ? '▸' : '▾'}</span>
-              {cat.title}
+              <span className="palette-domain" style={{ background: info.color }} />
+              {CATEGORY_TITLES[cat] || '其他'}
             </div>
             {!isCollapsed && items.map((spec) => (
-              <PaletteItem key={spec.name} spec={spec} locked={locked} onShowDoc={showDoc} />
+              <PaletteItem key={spec.name} spec={spec} info={paletteInfoOf(spec)}
+                locked={locked} onShowDoc={showDoc} />
             ))}
           </div>
         )
