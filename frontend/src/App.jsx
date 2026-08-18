@@ -9,7 +9,7 @@ import Inspector from './components/Inspector.jsx'
 import ConsolePanel from './components/ConsolePanel.jsx'
 import SettingsPopup, { renderConsoleLine } from './components/SettingsPopup.jsx'
 
-const NEW_GRAPH = () => ({ name: 'untitled', kernel_version: '0.1.0-0', nodes: [], wires: [] })
+const NEW_GRAPH = () => ({ name: 'untitled', kernel_version: '1.0.0-0', nodes: [], wires: [] })
 const randomSeed = () => Math.floor(Math.random() * 2 ** 31)
 const DEFAULT_CONSOLE_FORMAT = '[{time} {name} {node}] {line}'
 // 编辑器元数据版本(与 eidolon-graph-project 规范一致:条目级独立版本)

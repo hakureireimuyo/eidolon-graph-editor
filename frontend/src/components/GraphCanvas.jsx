@@ -89,6 +89,10 @@ export default function GraphCanvas({
       for (const p of spec.control_in || []) {
         lv.in[p.name] = ns.control_in_levels?.[p.name] ?? (p.default_level || 'active')
       }
+      for (const t of spec.trigger_in || []) {
+        // 触发信号槽电平:快照记录上一电平(变化检测用);未连线/未运行默认高
+        lv.in[t.name] = ns.trigger_in_levels?.[t.name] ?? 'active'
+      }
       for (const p of spec.data_in || []) {
         const sigWire = graph.wires.find((w) =>
           w.dst_node === n.node_id && w.dst_port === p.name && (w.dst_slot || 'data') === 'signal')
@@ -133,17 +137,18 @@ export default function GraphCanvas({
           targetHandle: `in:${slot}:${w.dst_port}`,
           data: { wire: w },
         }
-        if (slot === 'signal' && signalLevels) {
+        // 目标为触发输入(TriggerIn):数据线 → 渐变边(数据蓝 → 触发黄);
+        // 信号线 → 触发黄描边(电平双沿都产生激活请求,电平色无意义)
+        const dstSpec = specOf[graph.nodes.find((n) => n.node_id === w.dst_node)?.type_name]
+        const dstIsTrigger = !!dstSpec
+          && (dstSpec.trigger_in || []).some((p) => p.name === w.dst_port)
+        if (dstIsTrigger) {
+          if (slot === 'data') edge.type = 'triggerGrad'
+          else edge.style = { stroke: '#eab308' }
+        } else if (slot === 'signal' && signalLevels) {
           const lvl = signalLevels[w.src_node]?.out?.[w.src_port]
           if (lvl === 'active') edge.style = { stroke: '#4f9e6f' }
           else if (lvl === 'inactive') edge.style = { stroke: '#b5655e' }
-        }
-        // 数据线连到触发端口:渐变边(数据蓝 → 触发黄)
-        if (slot === 'data') {
-          const dstSpec = specOf[graph.nodes.find((n) => n.node_id === w.dst_node)?.type_name]
-          if (dstSpec && (dstSpec.data_in || []).some((p) => p.name === w.dst_port && p.trigger)) {
-            edge.type = 'triggerGrad'
-          }
         }
         return edge
       }),

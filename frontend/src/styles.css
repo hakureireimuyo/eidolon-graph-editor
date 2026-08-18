@@ -186,6 +186,11 @@ button.danger { background: #6b1f24; border-color: #a33; }
   background: var(--panel-2);
 }
 .port-group-stray { border-style: dashed; background: transparent; }  /* 组外端口区(控制/源输出) */
+/* 组框标题:声明了触发输入或非默认触发策略的组(如 `flush · on_trigger`) */
+.port-group-title {
+  padding: 2px 10px; font-size: 10px; color: var(--control);
+  border-bottom: 1px dashed var(--border); white-space: nowrap;
+}
 /* 两列矩阵:输入 | 输出,grid 行对齐(输出与触发它的输入同行) */
 .port-group-matrix { display: grid; grid-template-columns: 1fr 1fr; }
 .port-cell-empty { min-height: 40px; }  /* 空行占位,维持行对齐 */
@@ -202,6 +207,7 @@ button.danger { background: #6b1f24; border-color: #a33; }
 .port-semantic { color: var(--control); font-style: normal; font-size: 10px; margin-left: 4px; }
 .port-bound { color: var(--ok); font-style: normal; font-size: 10px; margin-left: 4px; }
 .port-trigger { color: #eab308; font-style: normal; font-size: 10px; margin-left: 4px; } /* 触发/事件端口:黄色 */
+.port-label-trigger { color: #eab308; } /* 节点上的触发输入端口名:黄色(函数调用级) */
 
 /* 端口句柄:数据槽蓝(实心)/ 信号槽橙(空心,运行中按电平着色) */
 .handle { width: 9px; height: 9px; border: 1px solid #000; }
@@ -267,6 +273,7 @@ button.close { padding: 0 8px; }
 
 .tag { border-radius: 3px; padding: 0 4px; margin-right: 6px; font-size: 10px; }
 .tag-data { background: #1d3355; color: #7fb0f7; }
+.tag-trigger { background: #3d3410; color: #eab308; } /* TriggerIn 触发输入端口 */
 .tag-control { background: #4a3413; color: #fbbf24; }
 .tag-danger { background: #4a1a1a; color: #f87171; }
 .tag-group { background: #2a3350; color: #a5b4fc; }

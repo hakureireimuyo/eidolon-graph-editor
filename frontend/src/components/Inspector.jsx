@@ -35,8 +35,8 @@ export default function Inspector({ node, spec, applyOps, onClose, onInject, onC
       setInjecting(false)
     }
   }
-  // 触发端口(事件端口)泛化注入栏:任何节点声明了 trigger 的端口都可手动触发
-  const triggerPorts = (spec?.data_in || []).filter((p) => p.trigger)
+  // 触发输入(TriggerIn)泛化注入栏:注入数据事件 = 载荷 + 激活请求(内核 1.0)
+  const triggerPorts = spec?.trigger_in || []
   const doTrigger = async (port) => {
     const raw = (trigVals[port] || '').trim()
     const value = raw === '' ? true : parseValue(raw)  // 空载荷 → true;输入按 JSON 解析
@@ -100,6 +100,12 @@ export default function Inspector({ node, spec, applyOps, onClose, onInject, onC
             {p.optional ? ' (可选,默认取配置)' : ''}
           </li>
         ))}
+        {(spec.trigger_in || []).map((p) => (
+          <li key={p.name}>
+            <span className="tag tag-trigger">trigger</span>in:{p.name}
+            <em> 数据线/信号线均可产生激活请求</em>
+          </li>
+        ))}
         {(spec.control_in || []).map((p) => (
           <li key={p.name}>
             <span className="tag tag-control">ctrl</span>in:{p.name}
@@ -128,7 +134,8 @@ export default function Inspector({ node, spec, applyOps, onClose, onInject, onC
             {(spec.groups || []).map((g) => (
               <li key={g.name}>
                 <span className="tag tag-group">{g.name}</span>
-                {g.inputs.join(', ')} → {g.outputs.join(', ') || '∅'}
+                {[...g.inputs, ...(g.triggers || [])].join(', ')} → {g.outputs.join(', ') || '∅'}
+                <em> ·{g.policy || 'on_all_data_ready'}</em>
               </li>
             ))}
             {(spec.init_in || []).length > 0 && (
@@ -143,7 +150,7 @@ export default function Inspector({ node, spec, applyOps, onClose, onInject, onC
 
       {triggerPorts.length > 0 && (
         <>
-          <h4>触发注入(事件端口)</h4>
+          <h4>触发注入(TriggerIn 端口)</h4>
           {triggerPorts.map((p) => (
             <div key={p.name} className="config-form">
               <label className="config-field">
@@ -162,7 +169,7 @@ export default function Inspector({ node, spec, applyOps, onClose, onInject, onC
               </button>
             </div>
           ))}
-          <p className="hint">产生一次事件:到达即触发组,载荷可用可忽略;空载荷注入 true,输入值按 JSON 解析(123 / true / "文本")</p>
+          <p className="hint">注入一次激活请求:数据事件到达触发输入 = 载荷 + 激活(组按策略响应);空载荷注入 true,输入值按 JSON 解析(123 / true / "文本")</p>
         </>
       )}
 

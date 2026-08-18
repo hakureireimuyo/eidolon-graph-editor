@@ -32,7 +32,7 @@ def _console_lines(view):
 
 LOOP = {
     "name": "loop",
-    "kernel_version": "0.1.0-0",
+    "kernel_version": "1.0.0-0",
     "nodes": [
         {"node_id": "clock", "type_name": "Clock", "config": {}},
         {"node_id": "counter", "type_name": "Counter", "config": {}},
@@ -68,8 +68,9 @@ def test_node_types_payload_includes_doc():
 def test_validate_graph_dict():
     lib, _ = service.builtin_env()
     assert service.validate_graph_dict(LOOP, lib).ok
-    broken = {"name": "b", "nodes": [{"node_id": "n", "type_name": "Clock", "config": {}},
-                                     {"node_id": "x", "type_name": "Counter", "config": {}}],
+    broken = {"name": "b", "kernel_version": "1.0.0-0",
+             "nodes": [{"node_id": "n", "type_name": "Clock", "config": {}},
+                       {"node_id": "x", "type_name": "Counter", "config": {}}],
               "wires": [{"src_node": "n", "src_port": "count",
                          "dst_node": "x", "dst_port": "count"}]}  # 数据输出连数据输出
     report = service.validate_graph_dict(broken, lib)
@@ -83,7 +84,7 @@ def test_validate_signal_slot_rules():
     组的数据输入全部接上,再单独验证信号槽规则。
     """
     lib, _ = service.builtin_env()
-    cross = {"name": "c", "kernel_version": "0.1.0-0",
+    cross = {"name": "c", "kernel_version": "1.0.0-0",
              "nodes": [{"node_id": "clk", "type_name": "Clock", "config": {}},
                        {"node_id": "t", "type_name": "Threshold", "config": {"limit": 1}},
                        {"node_id": "p", "type_name": "Printer", "config": {}}],
@@ -99,7 +100,7 @@ def test_validate_signal_slot_rules():
     cross["wires"][2]["dst_slot"] = "signal"
     assert service.validate_graph_dict(cross, lib).ok
     # 数据输出带 dst_slot='signal' → 合法(信号端口显式路由)
-    route = {"name": "b", "kernel_version": "0.1.0-0",
+    route = {"name": "b", "kernel_version": "1.0.0-0",
              "nodes": [{"node_id": "n", "type_name": "Clock", "config": {}},
                        {"node_id": "x", "type_name": "Counter", "config": {}}],
              "wires": [{"src_node": "n", "src_port": "count", "dst_node": "x", "dst_port": "increment"},
@@ -107,7 +108,7 @@ def test_validate_signal_slot_rules():
                         "dst_slot": "signal"}]}
     assert service.validate_graph_dict(route, lib).ok
     # 数据输出数据槽连控制输入 → 交叉连线(数据线不能进控制端口)
-    bad = {"name": "c", "kernel_version": "0.1.0-0",
+    bad = {"name": "c", "kernel_version": "1.0.0-0",
            "nodes": [{"node_id": "n", "type_name": "Clock", "config": {}},
                      {"node_id": "g", "type_name": "AND", "config": {}}],
            "wires": [{"src_node": "n", "src_port": "count", "dst_node": "g", "dst_port": "a"}]}
@@ -203,7 +204,7 @@ def test_session_feedback_gating():
 def test_output_node_console():
     """内核 Output 日志输出节点:Clock 事件逐行累积,console 追加式收录带节点名/编号。"""
     lib, registry = service.builtin_env()
-    graph = {"name": "out", "kernel_version": "0.1.0-0",
+    graph = {"name": "out", "kernel_version": "1.0.0-0",
              "nodes": [{"node_id": "clock", "type_name": "Clock", "config": {}},
                        {"node_id": "out", "type_name": "Output", "config": {}}],
              "wires": [{"src_node": "clock", "src_port": "count",
@@ -226,7 +227,7 @@ def test_two_outputs_sync_console():
     输出的行按拍序交替出现。
     """
     lib, registry = service.builtin_env()
-    graph = {"name": "out2", "kernel_version": "0.1.0-0",
+    graph = {"name": "out2", "kernel_version": "1.0.0-0",
              "nodes": [{"node_id": "clock", "type_name": "Clock", "config": {}},
                        {"node_id": "oa", "type_name": "Output", "config": {}},
                        {"node_id": "ob", "type_name": "Output", "config": {}}],
@@ -251,7 +252,8 @@ def test_two_outputs_sync_console():
 
 def test_start_session_rejects_invalid_graph():
     lib, registry = service.builtin_env()
-    broken = {"name": "b", "nodes": [{"node_id": "n", "type_name": "NoSuch", "config": {}}],
+    broken = {"name": "b", "kernel_version": "1.0.0-0",
+              "nodes": [{"node_id": "n", "type_name": "NoSuch", "config": {}}],
               "wires": []}
     try:
         service.start_session(service.decode_graph(broken), lib, registry)
@@ -265,7 +267,7 @@ def test_random_function_node():
     """内核 Random 随机函数节点:Clock.count → num 触发,确定性输出可复现。"""
     from eidolon_graph.engine.rng import Rng, derive_seed
     lib, registry = service.builtin_env()
-    graph = {"name": "rnd", "kernel_version": "0.1.0-0",
+    graph = {"name": "rnd", "kernel_version": "1.0.0-0",
              "nodes": [{"node_id": "clock", "type_name": "Clock", "config": {}},
                        {"node_id": "r1", "type_name": "Random",
                         "config": {"seed": 7, "range": 10}},
@@ -286,7 +288,7 @@ def test_random_only_seed_wired():
     """只连 seed 也产生事件(输入组=函数):random(num=默认, seed=clock.output, range=默认)。"""
     from eidolon_graph.engine.rng import Rng, derive_seed
     lib, registry = service.builtin_env()
-    graph = {"name": "rnd", "kernel_version": "0.1.0-0",
+    graph = {"name": "rnd", "kernel_version": "1.0.0-0",
              "nodes": [{"node_id": "clock", "type_name": "Clock", "config": {}},
                        {"node_id": "r1", "type_name": "Random",
                         "config": {"num": 10, "range": 100}},
@@ -305,7 +307,7 @@ def test_random_only_seed_wired():
 def test_input_node_inject_propagates():
     """Input 宿主节点:注入事件 → 输出事件向后传播,与节点产出数据同构。"""
     lib, registry = service.builtin_env()
-    graph = {"name": "in", "kernel_version": "0.1.0-0",
+    graph = {"name": "in", "kernel_version": "1.0.0-0",
              "nodes": [{"node_id": "in1", "type_name": "Input", "config": {}},
                        {"node_id": "out", "type_name": "Output", "config": {}}],
              "wires": [{"src_node": "in1", "src_port": "out",

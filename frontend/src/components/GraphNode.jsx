@@ -6,15 +6,19 @@ import { Handle, Position } from 'reactflow'
 // - 数据输入:数据槽 + 信号槽(信号槽可被显式信号线屏蔽/路由);
 // - 数据输出:数据槽 + 信号端口(电平由自动传导决定,可显式拉线到任意信号接收端);
 // - 控制端口本身就是信号端口;
+// - 触发输入(TriggerIn,函数调用级):数据槽 + 信号槽双句柄——数据线
+//   (载荷 + 激活)与信号线(电平双沿变化)都可产生激活请求,均以黄色标注;
 // - 绑定端口(const 默认 / 全局读取)同样可接线:接线数据优先,绑定值兜底。
 //
 // 节点内部布局(组 = 一等公民,数学矩阵符号):
-// - 一个节点默认一个矩阵框:左列全部输入(声明序)、右列全部输出;
-//   输出与触发它的输入**同行对齐**(输出 j 的组 g → 行 = g 末输入行 + j;
-//   未入组输出依次排下一个空行)——如 Buffer 的 items 与 flush 同行;
+// - 一个节点默认一个矩阵框:左列全部输入(声明序:数据 → 触发 → 控制)、
+//   右列全部输出;输出与触发它的输入**同行对齐**(输出 j 的组 g → 行 =
+//   g 末输入行 + j;未入组输出依次排下一个空行)——如 Buffer 的 items
+//   与 flush 同行;
 // - 多个"输入+输出"组(如 MultiGate 的 g1/g2)各自成框:互不相干的通道
 //   分开表达,组内输出同样与组末输入同行;
-// - 组外端口(控制端口/源输出)并入默认框;多框模式下落入虚线 stray 框。
+// - 组外端口(控制端口/源输出)并入默认框;多框模式下落入虚线 stray 框;
+// - 声明了触发输入或非默认触发策略的组,框顶显示标题 `组名 · 策略`。
 //
 // Handle 定位(关键):**不覆盖 React Flow 的任何定位样式**——每个句柄包一个
 // 0×0 的 .port-handle-wrap 绝对定位点(wrapper 原点 = 句柄中心):
@@ -35,7 +39,7 @@ function boundLabel(p) {
 function PortRow({ port, levels }) {
   const isIn = port.side === 'in'
   const hasData = port.kind === 'data'
-  const isTrigger = hasData && port.trigger   // 事件端口:只认数据到达,无信号句柄
+  const isTrigger = port.kind === 'trigger'   // 触发输入(TriggerIn):函数调用级激活入口
   // 信号句柄实时电平(绿=高,红=低;未运行不显示):世界运行后随 WS 快照更新
   const lvl = isIn ? levels?.in?.[port.name] : levels?.out?.[port.name]
   const lvlClass = lvl === 'active' ? ' lvl-active' : lvl === 'inactive' ? ' lvl-inactive' : ''
@@ -44,33 +48,55 @@ function PortRow({ port, levels }) {
     <div className="port-row">
       {isIn && port.slot && (
         <>
-          {!isTrigger && (
-            <div className="port-handle-wrap in signal">
-              <Handle
-                type="target"
-                position={Position.Left}
-                id={`in:signal:${port.name}`}
-                className={`handle handle-signal${lvlClass}`}
-                title={`信号槽:显式信号线(屏蔽/路由),不连线走默认传导${lvlSuffix}`}
-              />
-            </div>
-          )}
-          {hasData && (
-            <div className="port-handle-wrap in data">
-              <Handle
-                type="target"
-                position={Position.Left}
-                id={`in:data:${port.name}`}
-                className={`handle handle-data${isTrigger ? ' handle-trigger' : ''}`}
-                title={isTrigger
-                  ? '事件端口数据槽:上游数据到达即触发(载荷可用可忽略);不接受信号线'
-                  : '数据槽:上游数据输出(接线优先,绑定值兜底)'}
-              />
-            </div>
+          {isTrigger ? (
+            // 触发输入:数据槽 + 信号槽双句柄(数据线载荷+激活 / 信号线电平双沿)
+            <>
+              <div className="port-handle-wrap in signal">
+                <Handle
+                  type="target"
+                  position={Position.Left}
+                  id={`in:signal:${port.name}`}
+                  className={`handle handle-signal handle-trigger${lvlClass}`}
+                  title={`触发信号槽:电平变化(双沿)即产生一次激活请求${lvlSuffix}`}
+                />
+              </div>
+              <div className="port-handle-wrap in data">
+                <Handle
+                  type="target"
+                  position={Position.Left}
+                  id={`in:data:${port.name}`}
+                  className="handle handle-data handle-trigger"
+                  title="触发数据槽:数据到达即产生一次激活请求(载荷可用可忽略)"
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="port-handle-wrap in signal">
+                <Handle
+                  type="target"
+                  position={Position.Left}
+                  id={`in:signal:${port.name}`}
+                  className={`handle handle-signal${lvlClass}`}
+                  title={`信号槽:显式信号线(屏蔽/路由),不连线走默认传导${lvlSuffix}`}
+                />
+              </div>
+              {hasData && (
+                <div className="port-handle-wrap in data">
+                  <Handle
+                    type="target"
+                    position={Position.Left}
+                    id={`in:data:${port.name}`}
+                    className="handle handle-data"
+                    title="数据槽:上游数据输出(接线优先,绑定值兜底)"
+                  />
+                </div>
+              )}
+            </>
           )}
         </>
       )}
-      <span className="port-label">
+      <span className={`port-label${isTrigger ? ' port-label-trigger' : ''}`}>
         {port.name}
         {port.kind === 'control' && port.semantic !== undefined && (
           <em className="port-semantic">
@@ -114,7 +140,7 @@ function PortRow({ port, levels }) {
 // 矩阵框:grid 两列(输入 | 输出),行对齐由 outRows(行 → 输出端口)驱动
 // ---------------------------------------------------------------------------
 
-function BoxMatrix({ ins, outRows, levels, stray }) {
+function BoxMatrix({ title, ins, outRows, levels, stray }) {
   const rowCount = Math.max(ins.length, ...(outRows.map((_, r) => r + 1)), 0)
   const cells = []
   for (let r = 0; r < rowCount; r++) {
@@ -127,6 +153,7 @@ function BoxMatrix({ ins, outRows, levels, stray }) {
   }
   return (
     <div className={`port-group${stray ? ' port-group-stray' : ''}`}>
+      {title && <div className="port-group-title">{title}</div>}
       <div className="port-group-matrix">{cells}</div>
     </div>
   )
@@ -140,7 +167,7 @@ function planOutRows(groups, allIns, allOuts) {
   for (const g of groups) {
     if (g.outputs.length === 0) continue
     const lastIn = g.inputs.length
-      ? allIns.findIndex((p) => p.name === g.inputs[g.inputs.length - 1])
+      ? allIns.findIndex((p) => p.name === g.inputs[g.inputs.length - 1].name)
       : 0
     const base = lastIn < 0 ? 0 : lastIn
     g.outputs.forEach((p, j) => { rowOf.set(p.name, base + j); used.add(base + j) })
@@ -173,25 +200,41 @@ export default function GraphNode({ id, data }) {
     ...p, kind: 'data', side: 'in', slot: 'data',
     bound: !!(p.const_set || p.global_read),
   }))
+  const triggerIns = (spec.trigger_in || []).map((p) => ({
+    ...p, kind: 'trigger', side: 'in', slot: 'data',  // slot 仅占位:触发端口渲染双句柄
+  }))
   const dataOuts = (spec.data_out || []).map((p) => ({ ...p, kind: 'data', side: 'out', slot: 'data' }))
   const ctrlIns = (spec.control_in || []).map((p) => ({ ...p, kind: 'control', side: 'in', slot: 'signal' }))
   const ctrlOuts = (spec.control_out || []).map((p) => ({ ...p, kind: 'control', side: 'out', slot: 'signal' }))
+  // 组内输入 = 数据输入 + 触发输入(声明序:数据先、触发后);原始 triggers 名
+  // 保留在 g.triggers(字符串数组,供标题判断),inputs 已是端口对象数组
   const groups = (spec.groups || []).map((g) => ({
     ...g,
-    inputs: g.inputs.map((n) => dataIns.find((p) => p.name === n)).filter(Boolean),
+    inputs: [
+      ...g.inputs.map((n) => dataIns.find((p) => p.name === n)).filter(Boolean),
+      ...(g.triggers || []).map((n) => triggerIns.find((p) => p.name === n)).filter(Boolean),
+    ],
     outputs: g.outputs.map((n) => dataOuts.find((p) => p.name === n)).filter(Boolean),
   }))
+  // 组框标题:仅当组声明了触发输入或策略非默认(on_all_data_ready)时显示
+  const groupTitle = (g) =>
+    (g.triggers || []).length > 0 || g.policy !== 'on_all_data_ready'
+      ? `${g.name} · ${g.policy}`
+      : null
   const outputGroups = groups.filter((g) => g.outputs.length > 0)
-  // 组外端口(控制端口 + 未入组的数据端口):单框模式并入默认框;多框模式入 stray 框
+  // 组外端口(控制端口 + 未入组的数据/触发端口):单框模式并入默认框;多框模式入 stray 框
   const inGroup = new Set(groups.flatMap((g) => g.inputs.map((p) => p.name)))
   const outGroup = new Set(groups.flatMap((g) => g.outputs.map((p) => p.name)))
-  const strayIns = [...ctrlIns, ...dataIns.filter((p) => !inGroup.has(p.name))]
+  const strayIns = [...ctrlIns,
+                    ...dataIns.filter((p) => !inGroup.has(p.name)),
+                    ...triggerIns.filter((p) => !inGroup.has(p.name))]
   const strayOuts = [...ctrlOuts, ...dataOuts.filter((p) => !outGroup.has(p.name))]
 
   let boxes
   if (outputGroups.length > 1) {
     // 多"输入+输出"组:各自成框(互不相干的通道分开表达)
     boxes = outputGroups.map((g) => ({
+      title: groupTitle(g),
       ins: g.inputs,
       outRows: planOutRows([g], g.inputs, g.outputs),
     }))
@@ -203,10 +246,12 @@ export default function GraphNode({ id, data }) {
       })
     }
   } else {
-    // 默认单框:全部输入左列、全部输出右列,输出与触发它的输入同行
-    const allIns = [...dataIns, ...ctrlIns]
+    // 默认单框:全部输入左列(数据 → 触发 → 控制)、全部输出右列,
+    // 输出与触发它的输入同行;多组共框时标题并列
+    const allIns = [...dataIns, ...triggerIns, ...ctrlIns]
     const allOuts = [...dataOuts, ...ctrlOuts]
     boxes = [{
+      title: groups.map(groupTitle).filter(Boolean).join('　'),
       ins: allIns,
       outRows: planOutRows(groups, allIns, allOuts),
     }]
@@ -225,7 +270,7 @@ export default function GraphNode({ id, data }) {
       </div>
       <div className="gnode-body">
         {boxes.map((b, i) => (
-          <BoxMatrix key={i} ins={b.ins} outRows={b.outRows} levels={levels} stray={b.stray} />
+          <BoxMatrix key={i} title={b.title} ins={b.ins} outRows={b.outRows} levels={levels} stray={b.stray} />
         ))}
       </div>
     </div>
