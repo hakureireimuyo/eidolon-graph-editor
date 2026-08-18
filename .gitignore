@@ -14,7 +14,3 @@ workspace/
 # Misc
 .DS_Store
 *.log
-
-# 本机双击启动器(PowerShell 下 bash 会被解析为 WSL bash,仅本机环境需要)
-start-editor.bat
-start.sh
