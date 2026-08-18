@@ -141,7 +141,9 @@ function PortRow({ port, levels }) {
 // ---------------------------------------------------------------------------
 
 function BoxMatrix({ title, ins, outRows, levels, stray }) {
-  const rowCount = Math.max(ins.length, ...(outRows.map((_, r) => r + 1)), 0)
+  // outRows 是稀疏数组(行号 = 索引):length 即行数上限——展开 map 会把
+  // 空槽变成 undefined 导致 Math.max 得 NaN(端口行全部消失的经典坑)
+  const rowCount = Math.max(ins.length, outRows.length, 0)
   const cells = []
   for (let r = 0; r < rowCount; r++) {
     cells.push(ins[r]
